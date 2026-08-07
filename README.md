@@ -1,0 +1,317 @@
+# efacture
+
+**Scanner & Gérer Vos Achats au Togo**
+
+Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assivito, etc.) : photographier une facture, lire le texte automatiquement (OCR), valider les données et suivre dépenses, prix et fournisseurs.
+
+> Budget cible : **0 €** — React, Supabase (gratuit), Tesseract.js (OCR dans le navigateur), Netlify (hébergement).
+
+---
+
+## Sommaire
+
+- [Fonctionnalités](#fonctionnalités)
+- [Stack technique](#stack-technique)
+- [Architecture](#architecture)
+- [Pages et navigation](#pages-et-navigation)
+- [Authentification](#authentification)
+- [Parcours scan d'une facture](#parcours-scan-dune-facture)
+- [Mode démo vs production](#mode-démo-vs-production)
+- [PWA (installation)](#pwa-installation)
+- [Installation locale](#installation-locale)
+- [Configuration Supabase](#configuration-supabase)
+- [Déploiement Netlify](#déploiement-netlify)
+- [Variables d'environnement](#variables-denvironnement)
+- [Structure du projet](#structure-du-projet)
+- [Sécurité](#sécurité)
+- [Ce qui reste à faire](#ce-qui-reste-à-faire)
+
+---
+
+## Fonctionnalités
+
+| Fonctionnalité | Description |
+|----------------|-------------|
+| **Inscription / Connexion** | Téléphone togolais (+228, 8 chiffres) + mot de passe ou code OTP (simulé) |
+| **Scanner** | Caméra ou import galerie → compression image → OCR |
+| **Validation** | Correction fournisseur, date, lignes produits, montant |
+| **Historique** | Liste des factures, recherche, filtres par statut |
+| **Dashboard** | KPI du mois (dépenses, factures, inflation estimée) |
+| **Stats prix** | Évolution des prix, alertes hausse |
+| **Stats fournisseurs** | Dépenses par grossiste / marché |
+| **Profil** | Infos commerce, installation PWA |
+| **PWA** | Installable sur mobile et PC, cache offline, page de garde |
+
+---
+
+## Stack technique
+
+| Couche | Technologie |
+|--------|-------------|
+| Frontend | React 18 + Vite 6 + TypeScript |
+| Styles | Tailwind CSS 4 |
+| Routing | React Router 6 |
+| Backend | Supabase (Auth, PostgreSQL, Storage) |
+| OCR | Tesseract.js (100 % navigateur, gratuit) |
+| Graphiques | Recharts |
+| PWA | vite-plugin-pwa + Workbox |
+| Déploiement | Netlify |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│  Navigateur (PWA React)                  │
+│  Pages → OCR (Tesseract.js) → Supabase  │
+└──────────────────┬──────────────────────┘
+                   │ HTTPS
+┌──────────────────▼──────────────────────┐
+│  Netlify (fichiers statiques + SPA)      │
+└──────────────────┬──────────────────────┘
+                   │
+┌──────────────────▼──────────────────────┐
+│  Supabase                                │
+│  Auth │ PostgreSQL │ Storage (photos)    │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## Pages et navigation
+
+| Route | Page | Accès |
+|-------|------|-------|
+| `/auth/connexion` | Connexion | Public |
+| `/auth/inscription` | Inscription | Public |
+| `/` | Dashboard (KPI) | Connecté |
+| `/scanner` | Scanner facture | Connecté |
+| `/factures` | Historique | Connecté |
+| `/factures/:id` | Détail facture | Connecté |
+| `/factures/:id/valider` | Validation OCR | Connecté |
+| `/stats/prix` | Comparateur de prix | Connecté |
+| `/stats/fournisseurs` | Dépenses fournisseurs | Connecté |
+| `/profil` | Profil + install PWA | Connecté |
+
+Navigation principale : barre du bas (Accueil, Scanner, Factures, Stats, Profil).
+
+---
+
+## Authentification
+
+### Téléphone togolais
+
+- Format attendu : **8 chiffres** commençant par **7** ou **9** (ex. `90 12 34 56`)
+- Indicatif : **+228**
+
+### Deux modes de connexion
+
+1. **Mot de passe** — recommandé en production
+2. **Code SMS (OTP)** — simulé en développement (code affiché à l'écran)
+
+### Email interne Supabase
+
+L'utilisateur ne voit que son numéro. Côté Supabase Auth, l'email est :
+
+`90123456@phone.e-facture.app`
+
+(configurable dans `src/lib/auth/phone-auth.ts`)
+
+### Sans Supabase
+
+Si les variables d'environnement ne sont pas configurées :
+
+- Inscription locale (données dans le navigateur)
+- Bouton **« Mode démo »** avec factures fictives
+
+---
+
+## Parcours scan d'une facture
+
+```
+1. Ouvrir /scanner
+2. Photo (caméra) ou fichier (galerie)
+3. compressFile() → JPEG optimisé
+4. Tesseract.js → texte brut
+5. ocr-parser.ts → fournisseur, date, total, lignes produits
+6. Upload photo → Supabase Storage (bucket invoice-photos)
+7. Insertion → tables invoices + invoice_items
+8. Redirection → /factures/:id/valider
+9. L'utilisateur corrige → statut "validated"
+10. Dashboard et stats recalculés
+```
+
+---
+
+## Mode démo vs production
+
+| | Mode démo | Production (Supabase) |
+|---|-----------|---------------------|
+| Données | Fictives, localStorage | PostgreSQL cloud |
+| Photos | Placeholders SVG | Storage Supabase |
+| Comptes | Locaux / session | Auth Supabase |
+| Persistance | Navigateur uniquement | Multi-appareils |
+
+---
+
+## PWA (installation)
+
+- **Manifest** : nom `efacture`, thème vert `#006d41`
+- **Service Worker** : cache des assets, fonts, requêtes Supabase (NetworkFirst)
+- **Page de garde** : splash au premier lancement
+- **Installation** : bannière sur connexion + profil ; iOS via « Sur l'écran d'accueil »
+
+> La caméra mobile nécessite **HTTPS** (Netlify en production).
+
+---
+
+## Installation locale
+
+### Prérequis
+
+- Node.js 20 LTS
+- npm
+
+### Commandes
+
+```bash
+git clone https://github.com/Samuella01/efacture.git
+cd efacture
+npm install
+copy .env.example .env.local
+# Remplir VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY
+npm run dev
+```
+
+Ouvrir [http://localhost:5173](http://localhost:5173)
+
+### Accès depuis le téléphone (même Wi‑Fi)
+
+Le serveur Vite est configuré avec `host: true`. Au lancement de `npm run dev`, utilisez l'URL **Network** affichée (ex. `http://192.168.x.x:5173`).
+
+> Pour la caméra sur mobile, déployez sur Netlify (HTTPS).
+
+### Build production
+
+```bash
+npm run build
+npm run preview
+```
+
+---
+
+## Configuration Supabase
+
+1. Créer un projet sur [supabase.com](https://supabase.com)
+2. Exécuter `supabase/migrations/001_initial.sql` dans le SQL Editor
+3. Créer le bucket Storage **`invoice-photos`** (privé)
+4. Exécuter les policies Storage (fin du fichier SQL, section commentée)
+5. **Authentication → Email** : désactiver **Confirm email**
+6. Copier URL et clé **anon** dans `.env.local`
+
+### Tables
+
+- `profiles` — commerce, téléphone, quartier
+- `suppliers` — fournisseurs
+- `invoices` — factures scannées
+- `invoice_items` — lignes produits
+
+Row Level Security (RLS) : chaque utilisateur ne voit que ses données.
+
+---
+
+## Déploiement Netlify
+
+1. Connecter le repo GitHub à Netlify
+2. Paramètres :
+   - **Build command** : `npm run build`
+   - **Publish directory** : `dist`
+3. Variables d'environnement (Site settings → Environment variables) :
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Supabase → Authentication → URL Configuration :
+   - Site URL : `https://votre-site.netlify.app`
+   - Redirect URLs : `https://votre-site.netlify.app/**`
+
+Le fichier `netlify.toml` inclut déjà la redirection SPA.
+
+---
+
+## Variables d'environnement
+
+| Variable | Description | Où la trouver |
+|----------|-------------|---------------|
+| `VITE_SUPABASE_URL` | URL du projet Supabase | Supabase → Settings → API |
+| `VITE_SUPABASE_ANON_KEY` | Clé publique anon | Supabase → Settings → API |
+
+### Fichiers
+
+| Fichier | Commit Git ? | Rôle |
+|---------|--------------|------|
+| `.env.example` | Oui | Modèle sans vraies clés |
+| `.env.local` | **Non** | Vos clés locales |
+| Variables Netlify | Dashboard | Clés en production |
+
+---
+
+## Structure du projet
+
+```
+efacture/
+├── public/
+│   ├── icons/          # Icônes PWA + logo
+│   └── _redirects      # Netlify SPA
+├── src/
+│   ├── pages/          # Écrans (Dashboard, Scanner, …)
+│   ├── components/     # UI, layout, PWA, factures
+│   ├── context/        # AuthContext
+│   ├── hooks/          # usePwaInstall
+│   ├── lib/
+│   │   ├── auth/       # Téléphone, OTP, users locaux
+│   │   ├── demo/       # Mode démo
+│   │   ├── ocr/        # Tesseract, parser, compression
+│   │   ├── invoices.ts # CRUD + analytics
+│   │   └── supabase.ts
+│   └── types/
+├── supabase/migrations/  # Schéma SQL
+├── vite.config.ts      # Vite + PWA
+├── netlify.toml
+├── .env.example
+└── README.md
+```
+
+---
+
+## Sécurité
+
+- **Ne jamais** commiter `.env.local` ni de clés API dans le code
+- La clé **anon** Supabase est publique (côté client) ; la sécurité repose sur **RLS** PostgreSQL et les policies Storage
+- Ne pas utiliser la clé **service_role** dans le frontend
+- Mode local sans Supabase : mots de passe en clair dans le navigateur — **démo uniquement**
+- OTP SMS réel non configuré (simulation) — utiliser mot de passe en production
+
+---
+
+## Ce qui reste à faire
+
+- [ ] Configurer Supabase + `.env.local`
+- [ ] Déployer sur Netlify (HTTPS)
+- [ ] Tester scan caméra sur téléphone
+- [ ] SMS OTP réel (Twilio + Supabase Phone — payant)
+- [ ] Mot de passe oublié
+- [ ] Édition du profil
+- [ ] Export PDF mensuel
+- [ ] File d'attente offline pour scans sans réseau
+
+---
+
+## Licence
+
+Projet académique / TPME Lomé — usage libre pour apprentissage et soutenance.
+
+---
+
+## Auteur
+
+[Samuella01](https://github.com/Samuella01) — efacture
