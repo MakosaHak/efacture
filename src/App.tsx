@@ -15,6 +15,7 @@ import SuppliersPage from './pages/SuppliersPage';
 import ForecastPage from './pages/ForecastPage';
 import OptimizePage from './pages/OptimizePage';
 import ProfilePage from './pages/ProfilePage';
+import SellingPricesPage from './pages/SellingPricesPage';
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/stats/optimisation" element={<OptimizePage />} />
           <Route path="/stats/fournisseurs" element={<SuppliersPage />} />
           <Route path="/profil" element={<ProfilePage />} />
+          <Route path="/prix-de-vente" element={<SellingPricesPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

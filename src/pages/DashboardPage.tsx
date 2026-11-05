@@ -17,6 +17,7 @@ import {
   getOfflineQueueCount,
 } from '../lib/invoices';
 import { invoiceLandedTotal } from '../lib/landed-cost';
+import { countPendingSuggestions } from '../lib/productPrices';
 import type { Invoice, PriceAlert, SpendingForecast, FinancialOptimization, SpendingTotals } from '../types/invoice';
 import { displaySupplier } from '../lib/supplier';
 
@@ -30,6 +31,7 @@ export default function DashboardPage() {
   const [optimization, setOptimization] = useState<FinancialOptimization | null>(null);
   const [queueCount, setQueueCount] = useState(0);
   const [totals, setTotals] = useState<SpendingTotals>({ day: 0, week: 0, month: 0 });
+  const [pendingPrices, setPendingPrices] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,8 +45,10 @@ export default function DashboardPage() {
       getFinancialOptimization(user.id),
       getOfflineQueueCount(user.id),
       getSpendingTotals(user.id),
-    ]).then(([k, m, r, a, f, o, q, t]) => {
+      countPendingSuggestions().catch(() => 0),
+    ]).then(([k, m, r, a, f, o, q, t, p]) => {
       setTotals(t);
+      setPendingPrices(p);
       setKpis(k);
       setMomChange(m);
       setRecent(r);
@@ -112,6 +116,23 @@ export default function DashboardPage() {
             </p>
             <p className="mt-1 text-xs text-cyan-800">Envoi automatique à la reconnexion · Journal →</p>
           </Card>
+        </Link>
+      )}
+
+      {pendingPrices > 0 && (
+        <Link
+          to="/prix-de-vente"
+          className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-[#10B981]/40 bg-gradient-to-br from-[#ECFDF5] to-[#D1FAE5] px-4 py-3 shadow-neo-card-subtle"
+        >
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-[#059669] px-2 font-display text-sm font-bold text-white shadow-sm">
+              {pendingPrices}
+            </span>
+            <span className="text-sm font-bold text-[#065F46]">
+              prix de vente à confirmer
+            </span>
+          </span>
+          <span className="text-sm font-bold text-[#059669]">→</span>
         </Link>
       )}
 
