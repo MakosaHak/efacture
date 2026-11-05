@@ -89,8 +89,8 @@ export function MarginPicker({
       {valid && (
         <p className="mt-2 rounded-xl bg-[#ECFDF5] px-3 py-2 text-xs leading-relaxed text-[#065F46]">
           ✓ Sur chaque <strong>{formatFcfa(BASE)}</strong> d’achat, vous gagnez{' '}
-          <strong>{formatFcfa(resale - BASE)}</strong>. L’application calcule le bon prix de vente de chaque article
-          pour vous (transport compris).
+          <strong>{formatFcfa(resale - BASE)}</strong> (marge de {pct.toLocaleString('fr-FR')} %). L’application
+          vous propose ensuite un prix de vente pour chaque article acheté.
         </p>
       )}
     </div>

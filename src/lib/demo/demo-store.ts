@@ -1,6 +1,7 @@
-import type { Profile, Invoice, InvoiceItem, OCRResult } from '../../types/invoice';
+import type { Profile, Invoice, InvoiceItem, OCRResult, ProductPrice } from '../../types/invoice';
 import { DEMO_USER_ID } from './demo-mode';
 import { displaySupplier, normalizeSupplierName } from '../supplier';
+import { averagePurchasePrices, DEFAULT_MARGIN, suggestSellingPrice } from '../pricing';
 
 export const DEMO_PROFILE: Profile = {
   id: DEMO_USER_ID,
@@ -8,7 +9,7 @@ export const DEMO_PROFILE: Profile = {
   telephone: '+228 90 00 00 00',
   adresse: 'Marché Adawlato, Lomé',
   quartier: 'Adawlato',
-  marge_beneficiaire_defaut: 15,
+  default_margin: DEFAULT_MARGIN,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -159,8 +160,73 @@ export function initDemoPhotos(): void {
 let invoices: Invoice[] = buildSeedInvoices();
 initDemoPhotos();
 
+/* ---------- Prix de vente (product_prices local) ---------- */
+
+/** Marges déjà apprises dans le jeu démo (produits vendus depuis plusieurs mois). */
+const SEED_MARGINS: Record<string, number> = {
+  'sac de riz 50 kg': 0.12,
+  'huile vegetale 5 l': 0.18,
+  'ciment 50 kg': 0.1,
+  'farine de ble 1 kg': 0.25,
+};
+
+let defaultMargin = DEFAULT_MARGIN;
+let productPrices = new Map<string, ProductPrice>();
+
+/** Construit les prix confirmés à partir de l'historique des factures validées du jeu démo. */
+function buildSeedProductPrices(source: Invoice[]): Map<string, ProductPrice> {
+  const map = new Map<string, ProductPrice>();
+  [...source]
+    .filter((inv) => inv.status === 'validated')
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    .forEach((inv) => {
+      averagePurchasePrices(inv.invoice_items || []).forEach((p) => {
+        const prev = map.get(p.product_key);
+        const margin = SEED_MARGINS[p.product_key] ?? DEFAULT_MARGIN;
+        const price = suggestSellingPrice(p.unit_price, margin);
+        map.set(p.product_key, {
+          product_key: p.product_key,
+          product_name: p.product_name,
+          margin,
+          last_purchase_price: p.unit_price,
+          previous_purchase_price: prev?.last_purchase_price ?? null,
+          suggested_price: price,
+          selling_price: price,
+          status: 'confirmed',
+          confirmations: (prev?.confirmations ?? 0) + 1,
+          updated_at: inv.created_at,
+        });
+      });
+    });
+  return map;
+}
+
+productPrices = buildSeedProductPrices(invoices);
+
+export function demoGetDefaultMargin(): number {
+  return defaultMargin;
+}
+
+export function demoSetDefaultMargin(value: number): void {
+  defaultMargin = value;
+}
+
+export function demoGetProductPrice(productKey: string): ProductPrice | null {
+  return productPrices.get(productKey) ?? null;
+}
+
+export function demoSaveProductPrice(row: ProductPrice): void {
+  productPrices.set(row.product_key, { ...row });
+}
+
+export function demoListProductPrices(): ProductPrice[] {
+  return [...productPrices.values()].map((r) => ({ ...r }));
+}
+
 export function resetDemoStore(): void {
   invoices = buildSeedInvoices();
+  defaultMargin = DEFAULT_MARGIN;
+  productPrices = buildSeedProductPrices(invoices);
   photoUrls.clear();
   initDemoPhotos();
 }

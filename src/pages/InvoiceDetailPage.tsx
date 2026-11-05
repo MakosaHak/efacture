@@ -6,7 +6,6 @@ import { Button } from '../components/ui/Button';
 import { InvoiceStatusBadge } from '../components/invoices/InvoiceStatusBadge';
 import { deleteInvoice, fetchInvoice, formatDate, formatFcfa, getPhotoUrl, getKnownSupplierNames, updateInvoiceSupplier } from '../lib/invoices';
 import { invoiceLandedTotal, transportFeeOf } from '../lib/landed-cost';
-import { computeItemsPricing, DEFAULT_MARGIN_PCT } from '../lib/pricing';
 import { displaySupplier, isNamedSupplier } from '../lib/supplier';
 import { isOfflineInvoiceId } from '../lib/offline/queue';
 import { useAuth } from '../context/AuthContext';
@@ -15,7 +14,7 @@ import type { Invoice } from '../types/invoice';
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -71,17 +70,6 @@ export default function InvoiceDetailPage() {
   const transportFee = transportFeeOf(invoice);
   const landedTotal = invoiceLandedTotal(invoice);
   const items = invoice.invoice_items || [];
-  // Valeurs enregistrées à la validation ; recalcul avec la marge du profil pour les anciennes factures.
-  const computed = computeItemsPricing(
-    items.map((it) => ({ quantity: Number(it.quantity), unit_price: Number(it.unit_price) })),
-    {
-      invoiceTotal: Number(invoice.total_amount),
-      transportFee,
-      marginPct: profile?.marge_beneficiaire_defaut ?? DEFAULT_MARGIN_PCT,
-    },
-  );
-  const costOf = (i: number) => Number(items[i].cout_de_revient_unitaire ?? computed[i].cout_de_revient_unitaire);
-  const sellOf = (i: number) => Number(items[i].prix_de_vente_conseille ?? computed[i].prix_de_vente_conseille);
 
   return (
     <AppLayout>
@@ -162,20 +150,7 @@ export default function InvoiceDetailPage() {
             </span>
             <span className="font-semibold">{formatFcfa(Number(item.total_price))}</span>
           </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-lg bg-[#E2E8F0] px-1.5 py-1.5 shadow-neo-inset">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-[#64748B]">Acheté à</p>
-              <p className="text-xs font-bold text-[#0F172A]">{formatFcfa(Number(item.unit_price))}</p>
-            </div>
-            <div className="rounded-lg bg-[#E2E8F0] px-1.5 py-1.5 shadow-neo-inset">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-[#64748B]">Revient à</p>
-              <p className="text-xs font-bold text-[#1E3A8A]">{formatFcfa(costOf(i))}</p>
-            </div>
-            <div className="rounded-lg border border-[#10B981]/40 bg-gradient-to-br from-[#ECFDF5] to-[#D1FAE5] px-1.5 py-1.5">
-              <p className="text-[9px] font-bold uppercase tracking-wider text-[#047857]">Vendez à</p>
-              <p className="text-xs font-bold text-[#047857]">{formatFcfa(sellOf(i))}</p>
-            </div>
-          </div>
+          <p className="mt-0.5 text-xs text-[#64748B]">{formatFcfa(Number(item.unit_price))} / unité</p>
         </Card>
       ))}
 

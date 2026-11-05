@@ -6,7 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { MarginPicker } from '../components/ui/MarginPicker';
 import { formatFcfa } from '../lib/invoices';
-import { DEFAULT_MARGIN_PCT } from '../lib/pricing';
+import { DEFAULT_MARGIN } from '../lib/pricing';
 
 export default function RegisterPage() {
   const { user, signUpWithPhonePassword } = useAuth();
@@ -16,7 +16,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [quartier, setQuartier] = useState('');
-  const [marge, setMarge] = useState(String(DEFAULT_MARGIN_PCT));
+  const [marge, setMarge] = useState(String(DEFAULT_MARGIN * 100));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -29,9 +29,9 @@ export default function RegisterPage() {
       setError('Les mots de passe ne correspondent pas.');
       return;
     }
-    const margeValue = marge.trim() === '' ? DEFAULT_MARGIN_PCT : Number(marge);
-    if (!Number.isFinite(margeValue) || margeValue < 0 || margeValue > 1000) {
-      setError('Marge bénéficiaire invalide (entre 0 et 1000 %).');
+    const margePct = marge.trim() === '' ? DEFAULT_MARGIN * 100 : Number(marge);
+    if (!Number.isFinite(margePct) || margePct < 0 || margePct > 100) {
+      setError('Marge invalide (entre 0 et 100 %).');
       return;
     }
     setLoading(true);
@@ -41,7 +41,7 @@ export default function RegisterPage() {
         telephone: phone,
         adresse: '',
         quartier: quartier.trim(),
-        marge_beneficiaire_defaut: margeValue,
+        default_margin: margePct / 100,
       });
       navigate('/');
     } catch (err) {

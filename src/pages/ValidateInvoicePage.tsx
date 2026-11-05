@@ -5,37 +5,24 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { InvoiceThumbnail } from '../components/invoices/InvoiceThumbnail';
-import { MarginPicker } from '../components/ui/MarginPicker';
 import {
   fetchInvoice,
-  formatDate,
   formatFcfa,
   getKnownSupplierNames,
-  getLastPurchasePrices,
   getPhotoUrl,
   rejectInvoice,
   validateInvoice,
 } from '../lib/invoices';
 import { transportFeeOf } from '../lib/landed-cost';
-import {
-  computeItemsPricing,
-  DEFAULT_MARGIN_PCT,
-  invoiceTotalGap,
-  PRICE_INCREASE_ALERT_PCT,
-  priceIncreasePct,
-  productKey,
-} from '../lib/pricing';
-import { displaySupplier, isNamedSupplier } from '../lib/supplier';
+import { invoiceTotalGap } from '../lib/pricing';
+import { isNamedSupplier } from '../lib/supplier';
 import { isOfflineInvoiceId } from '../lib/offline/queue';
 import { useAuth } from '../context/AuthContext';
-import type { Invoice, InvoiceItem, LastPurchasePrice } from '../types/invoice';
-
-/** pv_manuel : le commerçant a saisi lui-même le prix de vente. */
-type EditableItem = InvoiceItem & { pv_manuel?: boolean };
+import type { Invoice, InvoiceItem } from '../types/invoice';
 
 export default function ValidateInvoicePage() {
   const { id } = useParams<{ id: string }>();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -44,10 +31,8 @@ export default function ValidateInvoicePage() {
   const [date, setDate] = useState('');
   const [total, setTotal] = useState('');
   const [transport, setTransport] = useState('');
-  const [margin, setMargin] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
-  const [items, setItems] = useState<EditableItem[]>([]);
-  const [lastPrices, setLastPrices] = useState<Map<string, LastPurchasePrice>>(new Map());
+  const [items, setItems] = useState<InvoiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -78,45 +63,21 @@ export default function ValidateInvoicePage() {
   useEffect(() => {
     if (!user) return;
     getKnownSupplierNames(user.id).then(setKnownSuppliers);
-    getLastPurchasePrices(user.id, id).then(setLastPrices);
-  }, [user, id]);
+  }, [user]);
 
   const updateItem = (index: number, field: keyof InvoiceItem, value: string | number) => {
     setItems((prev) => {
       const next = [...prev];
-      const item: EditableItem = { ...next[index], [field]: value };
+      const item = { ...next[index], [field]: value };
       if (field === 'quantity' || field === 'unit_price') {
         item.total_price = Number(item.quantity) * Number(item.unit_price);
-        // le coût change : on repart du prix conseillé
-        item.pv_manuel = false;
       }
       next[index] = item;
       return next;
     });
   };
 
-  const setManualSellPrice = (index: number, value: string) => {
-    setItems((prev) => {
-      const next = [...prev];
-      next[index] =
-        value.trim() === ''
-          ? { ...next[index], pv_manuel: false }
-          : { ...next[index], pv_manuel: true, prix_de_vente_conseille: Math.max(0, parseFloat(value) || 0) };
-      return next;
-    });
-  };
-
-  const marginInput = margin ?? String(profile?.marge_beneficiaire_defaut ?? DEFAULT_MARGIN_PCT);
-  const marginPct = parseFloat(marginInput) || 0;
-  const transportFee = parseFloat(transport) || 0;
-  const pricing = computeItemsPricing(items, {
-    invoiceTotal: parseFloat(total) || 0,
-    transportFee,
-    marginPct,
-  });
   const totalCheck = invoiceTotalGap(parseFloat(total) || 0, items);
-  const sellPriceOf = (i: number) =>
-    items[i]?.pv_manuel ? Number(items[i].prix_de_vente_conseille) || 0 : pricing[i]?.prix_de_vente_conseille ?? 0;
 
   const addItem = () => {
     setItems((prev) => [
@@ -140,12 +101,7 @@ export default function ValidateInvoicePage() {
         total_amount: parseFloat(total) || 0,
         transport_fee: parseFloat(transport) || 0,
         notes,
-        items: items.map(({ pv_manuel: _manual, ...item }, i) => ({
-          ...item,
-          frais_transport_attribues: pricing[i].frais_transport_attribues,
-          cout_de_revient_unitaire: pricing[i].cout_de_revient_unitaire,
-          prix_de_vente_conseille: sellPriceOf(i),
-        })),
+        items,
       });
       navigate(`/factures/${id}`);
     } finally {
@@ -255,7 +211,6 @@ export default function ValidateInvoicePage() {
               </p>
             )}
           </div>
-          <MarginPicker value={marginInput} onChange={setMargin} title="Votre bénéfice sur cette facture" />
           <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Card>
 
@@ -289,88 +244,20 @@ export default function ValidateInvoicePage() {
             </button>
           </div>
         )}
-        {lastPrices.size > 0 && (
-          <p className="-mt-2 text-[10px] text-[#94A3B8]">
-            Badge rouge : prix d’achat en hausse de plus de {PRICE_INCREASE_ALERT_PCT} % depuis le dernier achat enregistré.
-          </p>
-        )}
 
-        {items.map((item, i) => {
-          const p = pricing[i];
-          const sellPrice = sellPriceOf(i);
-          const last = lastPrices.get(productKey(item.product_name));
-          const increase = last ? priceIncreasePct(Number(item.unit_price), last.unit_price) : null;
-          const belowCost = sellPrice > 0 && sellPrice < p.cout_de_revient_unitaire;
-          return (
-            <Card key={i} className="space-y-2">
-              <Input label="Produit" value={item.product_name} onChange={(e) => updateItem(i, 'product_name', e.target.value)} />
-              <div className="grid grid-cols-3 gap-2">
-                <Input label="Qté" type="number" value={item.quantity} onChange={(e) => updateItem(i, 'quantity', parseFloat(e.target.value) || 0)} />
-                <Input label="P.U." type="number" value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', parseFloat(e.target.value) || 0)} />
-                <Input label="Total" type="number" value={item.total_price} readOnly />
-              </div>
-
-              {increase != null && last && (
-                <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
-                  <span className="mt-0.5 shrink-0 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                    +{increase} %
-                  </span>
-                  <p className="text-xs leading-relaxed text-red-900">
-                    <strong>Hausse de prix fournisseur</strong> depuis le dernier achat :{' '}
-                    {formatFcfa(last.unit_price)} le {formatDate(last.date)}
-                    {isNamedSupplier(last.supplier_name_raw) ? ` chez ${displaySupplier(last.supplier_name_raw)}` : ''}.
-                  </p>
-                </div>
-              )}
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-xl border border-white/70 bg-[#E2E8F0] px-2.5 py-2 shadow-neo-inset">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">Acheté à</p>
-                  <p className="mt-0.5 font-display text-sm font-bold text-[#0F172A]">{formatFcfa(Number(item.unit_price))}</p>
-                </div>
-                <div className="rounded-xl border border-white/70 bg-[#E2E8F0] px-2.5 py-2 shadow-neo-inset">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">Vous revient à</p>
-                  <p className="mt-0.5 font-display text-sm font-bold text-[#1E3A8A]">{formatFcfa(p.cout_de_revient_unitaire)}</p>
-                  {p.frais_transport_attribues > 0 && (
-                    <p className="text-[10px] text-[#64748B]">
-                      +{formatFcfa(p.cout_de_revient_unitaire - Number(item.unit_price))} transport
-                    </p>
-                  )}
-                </div>
-                <label className="block rounded-xl border border-[#10B981]/40 bg-gradient-to-br from-[#ECFDF5] to-[#D1FAE5] px-2.5 py-2 shadow-neo-card-subtle">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[#047857]">
-                    Vendez à{item.pv_manuel ? ' ✎' : ''}
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={50}
-                    value={sellPrice || ''}
-                    onChange={(e) => setManualSellPrice(i, e.target.value)}
-                    className="mt-0.5 w-full bg-transparent font-display text-sm font-bold text-[#047857] outline-none"
-                    aria-label={`Prix de vente conseillé pour ${item.product_name || 'cet article'}`}
-                  />
-                </label>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <button type="button" className="text-xs text-red-600" onClick={() => removeItem(i)}>
-                  Supprimer la ligne
-                </button>
-                {item.pv_manuel && (
-                  <button type="button" className="text-xs font-semibold text-[#047857]" onClick={() => setManualSellPrice(i, '')}>
-                    Revenir au prix conseillé ({formatFcfa(p.prix_de_vente_conseille)})
-                  </button>
-                )}
-              </div>
-              {belowCost && (
-                <p className="text-xs font-semibold text-red-600">
-                  Attention : à ce prix vous perdez de l’argent (l’article vous revient plus cher).
-                </p>
-              )}
-            </Card>
-          );
-        })}
+        {items.map((item, i) => (
+          <Card key={i} className="space-y-2">
+            <Input label="Produit" value={item.product_name} onChange={(e) => updateItem(i, 'product_name', e.target.value)} />
+            <div className="grid grid-cols-3 gap-2">
+              <Input label="Qté" type="number" value={item.quantity} onChange={(e) => updateItem(i, 'quantity', parseFloat(e.target.value) || 0)} />
+              <Input label="P.U." type="number" value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', parseFloat(e.target.value) || 0)} />
+              <Input label="Total" type="number" value={item.total_price} readOnly />
+            </div>
+            <button type="button" className="text-xs text-red-600" onClick={() => removeItem(i)}>
+              Supprimer la ligne
+            </button>
+          </Card>
+        ))}
 
         <Button type="button" variant="secondary" fullWidth onClick={addItem}>
           + Ajouter une ligne

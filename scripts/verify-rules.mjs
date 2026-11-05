@@ -4,6 +4,16 @@
  * src/lib/ocr/ocr-parser.ts et src/lib/invoices.ts — pas une mesure OCR sur photo.
  */
 import assert from 'node:assert/strict';
+// Module réel (TypeScript pur) : script lancé avec --experimental-strip-types (cf. package.json).
+import {
+  averagePurchasePrices,
+  invoiceTotalGap,
+  isPriceIncrease,
+  learnMargin,
+  normalizeProductName,
+  roundToStep,
+  suggestSellingPrice,
+} from '../src/lib/pricing.ts';
 
 function normalizePhoneDigits(raw) {
   let d = String(raw).replace(/\D/g, '');
@@ -182,4 +192,30 @@ assert.equal(fit.predicted, 40);
 assert.equal(fit.r2, 1);
 assert.equal(fitLinearNext([10, 20]), null);
 
-console.log('verify-rules: OK (téléphone, parser FCFA/date, KPI, alerte 10 %, régression)');
+// Prix de vente suggérés (src/lib/pricing.ts)
+assert.equal(suggestSellingPrice(20000, 0.15), 23000);
+assert.equal(suggestSellingPrice(22000, 0.15), 25300);
+assert.equal(roundToStep(1237), 1225);
+assert.equal(roundToStep(1238), 1250);
+assert.equal(roundToStep(0), 0);
+assert.equal(learnMargin(0.15, 20000, 24000), 0.165); // marge réelle 0.20
+assert.equal(learnMargin(0.15, 20000, 19000), 0.15); // sous le coût : marge inchangée
+assert.equal(learnMargin(0.15, 0, 5000), 0.15); // prix d'achat inconnu
+assert.equal(learnMargin(0.9, 1000, 5000), 1); // bornée à 100 %
+assert.equal(learnMargin(0.15, 1000, 1000), 0.105); // revente au prix coûtant
+assert.equal(normalizeProductName('Riz parfumé 25kg'), normalizeProductName('riz  parfume 25 kg'));
+assert.equal(normalizeProductName('Huile végétale (5L)'), 'huile vegetale 5 l');
+assert.equal(isPriceIncrease(11100, 10000), true);
+assert.equal(isPriceIncrease(11000, 10000), false); // +10 % pile : pas au-delà du seuil
+assert.equal(isPriceIncrease(11100, null), false); // produit nouveau
+const avg = averagePurchasePrices([
+  { product_name: 'Sucre 1kg', quantity: 2, unit_price: 700 },
+  { product_name: 'sucre 1 kg', quantity: 2, unit_price: 800 },
+  { product_name: 'Huile 5L', quantity: 1, unit_price: 4500 },
+]);
+assert.equal(avg.length, 2);
+assert.equal(avg.find((p) => p.product_key === 'sucre 1 kg').unit_price, 750);
+assert.equal(invoiceTotalGap(60000, [{ quantity: 2, unit_price: 12500 }]).gap, 35000);
+assert.equal(invoiceTotalGap(25000, [{ quantity: 2, unit_price: 12500 }]).mismatch, false);
+
+console.log('verify-rules: OK (téléphone, parser FCFA/date, KPI, alerte 10 %, régression, prix de vente suggérés)');

@@ -1,86 +1,104 @@
 /**
- * Prix de vente unitaire conseillé.
- * Miroir client de la fonction SQL fill_invoice_item_pricing (supabase/migrations/003_selling_price.sql).
- * Sans dépendance : importable tel quel par scripts/verify-pricing.ts.
+ * Prix de vente suggérés — « suggestion adaptative à moyenne mobile » (pas de machine learning).
+ * Module pur : aucun accès réseau, aucune dépendance. Importé tel quel par scripts/verify-rules.mjs.
  */
 
-export const DEFAULT_MARGIN_PCT = 15;
-/** Palier d'arrondi du marché (Lomé) : 632 F → 650 F. */
-export const PRICE_ROUNDING_STEP = 50;
-/** Seuil critique : une hausse du prix d'achat strictement supérieure déclenche l'alerte. */
-export const PRICE_INCREASE_ALERT_PCT = 5;
-
-export interface ItemPricing {
-  sous_total: number;
-  frais_transport_attribues: number;
-  cout_de_revient_unitaire: number;
-  prix_de_vente_conseille: number;
-}
+/** Marge globale par défaut du commerçant (0.15 = 15 %). */
+export const DEFAULT_MARGIN = 0.15;
+/** Pas d'arrondi des prix de vente (FCFA). */
+export const PRICE_STEP = 25;
+/** Seuil de hausse du prix d'achat (%) au-delà duquel la ligne est « à vérifier ». */
+export const PRICE_INCREASE_THRESHOLD_PCT = 10;
+/** Poids de l'ancienne marge dans la moyenne mobile. */
+const MARGIN_MEMORY = 0.7;
 
 const num = (v: unknown) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-export function roundUpPrice(amount: number, step = PRICE_ROUNDING_STEP): number {
-  if (!(amount > 0)) return 0;
-  // la tolérance évite 650.0000001 → 700
-  return Math.ceil(amount / step - 1e-9) * step;
-}
-
-export function sellingPrice(unitCost: number, marginPct: number, step = PRICE_ROUNDING_STEP): number {
-  return roundUpPrice(num(unitCost) * (1 + Math.max(0, num(marginPct)) / 100), step);
-}
-
-/**
- * part_transport = (sous_total / montant_total_facture) × frais_transport
- * coût de revient = prix_unitaire + part_transport / quantité
- * PV conseillé   = coût de revient × (1 + marge / 100), arrondi au palier supérieur
- * Si le montant facture est illisible (≤ 0), la somme des lignes sert de base.
- */
-export function computeItemsPricing(
-  items: Array<{ quantity: number; unit_price: number }>,
-  opts: { invoiceTotal: number; transportFee: number; marginPct: number; step?: number },
-): ItemPricing[] {
-  const transport = Math.max(0, num(opts.transportFee));
-  const subTotals = items.map((it) => Math.max(0, num(it.quantity)) * num(it.unit_price));
-  const base = num(opts.invoiceTotal) > 0 ? num(opts.invoiceTotal) : subTotals.reduce((s, v) => s + v, 0);
-
-  return items.map((it, i) => {
-    const quantity = Math.max(0, num(it.quantity));
-    const sous_total = subTotals[i];
-    const part = base > 0 ? (sous_total / base) * transport : 0;
-    const cout = num(it.unit_price) + (quantity > 0 ? part / quantity : 0);
-    return {
-      sous_total,
-      frais_transport_attribues: round2(part),
-      cout_de_revient_unitaire: round2(cout),
-      prix_de_vente_conseille: sellingPrice(cout, opts.marginPct, opts.step),
-    };
-  });
-}
-
-/** Clé de rapprochement d'un produit entre factures (casse, accents, espaces). */
-export function productKey(name: string): string {
+/** « Riz parfumé 25kg » et « riz  parfume 25 kg » → « riz parfume 25 kg ». */
+export function normalizeProductName(name: string): string {
   return String(name || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/(\d)([a-z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/g, '$1 $2')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-/** Variation en % du prix d'achat ; null si la hausse ne dépasse pas le seuil critique. */
-export function priceIncreasePct(current: number, previous: number): number | null {
-  if (!(previous > 0) || !(current > 0)) return null;
-  const pct = ((current - previous) / previous) * 100;
-  return pct > PRICE_INCREASE_ALERT_PCT ? Math.round(pct * 10) / 10 : null;
+/** Arrondi au multiple de `step` le plus proche (1237 → 1225). */
+export function roundToStep(price: number, step = PRICE_STEP): number {
+  const p = num(price);
+  return p <= 0 ? 0 : Math.round(p / step) * step;
+}
+
+export function suggestSellingPrice(purchasePrice: number, margin: number): number {
+  return roundToStep(num(purchasePrice) * (1 + num(margin)));
 }
 
 /**
- * Vérification croisée : total lu par l'IA vs somme des lignes (quantité × prix unitaire).
+ * Nouvelle marge = 0.7 × ancienne + 0.3 × marge réellement choisie, bornée à [0, 1].
+ * Pas d'apprentissage si le prix d'achat est inconnu ou si le prix final est sous le coût.
+ */
+export function learnMargin(oldMargin: number, purchasePrice: number, finalPrice: number): number {
+  const p = num(purchasePrice);
+  const f = num(finalPrice);
+  if (p <= 0 || f < p) return oldMargin;
+  const real = f / p - 1;
+  const next = MARGIN_MEMORY * num(oldMargin) + (1 - MARGIN_MEMORY) * real;
+  return Math.round(Math.min(1, Math.max(0, next)) * 1e6) / 1e6;
+}
+
+/** Hausse du dernier prix d'achat de plus de 10 % par rapport au précédent. */
+export function isPriceIncrease(
+  lastPrice: number,
+  previousPrice: number | null | undefined,
+  thresholdPct = PRICE_INCREASE_THRESHOLD_PCT,
+): boolean {
+  const prev = num(previousPrice);
+  return prev > 0 && ((num(lastPrice) - prev) / prev) * 100 > thresholdPct;
+}
+
+export interface ProductPurchase {
+  product_key: string;
+  product_name: string;
+  unit_price: number;
+}
+
+/**
+ * Regroupe les lignes d'une facture par produit normalisé.
+ * Plusieurs lignes du même produit → prix unitaire moyen pondéré par la quantité
+ * (moyenne simple si les quantités sont nulles).
+ */
+export function averagePurchasePrices(
+  items: Array<{ product_name: string; quantity: number; unit_price: number }>,
+): ProductPurchase[] {
+  const groups = new Map<string, { name: string; qty: number; spent: number; prices: number[] }>();
+  items.forEach((it) => {
+    const key = normalizeProductName(it.product_name);
+    const price = num(it.unit_price);
+    if (!key || price <= 0) return;
+    const g = groups.get(key) || { name: it.product_name.trim(), qty: 0, spent: 0, prices: [] };
+    const qty = Math.max(0, num(it.quantity));
+    g.qty += qty;
+    g.spent += qty * price;
+    g.prices.push(price);
+    groups.set(key, g);
+  });
+  return [...groups.entries()].map(([product_key, g]) => ({
+    product_key,
+    product_name: g.name,
+    unit_price:
+      g.qty > 0 ? Math.round((g.spent / g.qty) * 100) / 100 : g.prices.reduce((s, v) => s + v, 0) / g.prices.length,
+  }));
+}
+
+/**
+ * Vérification croisée (scan) : total lu par l'IA vs somme des lignes (quantité × prix unitaire).
  * gap > 0 : des lignes manquent probablement ; gap < 0 : lignes en trop ou total mal lu.
  */
 export function invoiceTotalGap(

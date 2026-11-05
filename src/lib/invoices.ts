@@ -4,7 +4,7 @@ import * as demo from './demo/demo-store';
 import { fitLinearNext, formatMonthLong, mean, monthlyGrowthRate, nextMonthLabel, slopeToMonthlyPct } from './predict';
 import { allocateTransport, invoiceLandedTotal, transportFeeOf } from './landed-cost';
 import { displaySupplier, isNamedSupplier, normalizeSupplierName, UNKNOWN_SUPPLIER } from './supplier';
-import { productKey } from './pricing';
+import { preparePriceSuggestions } from './productPrices';
 import {
   countOfflineScans,
   deleteOfflineScan,
@@ -22,7 +22,6 @@ import {
 import type {
   Invoice,
   InvoiceItem,
-  LastPurchasePrice,
   MonthlyKpis,
   OCRRawData,
   OCRResult,
@@ -189,6 +188,7 @@ export async function validateInvoice(
 
   if (isDemoMode()) {
     demo.demoValidateInvoice(invoiceId, payload);
+    await preparePricesInBackground(invoiceId);
     return;
   }
   const { data: existing } = await supabase
@@ -225,86 +225,34 @@ export async function validateInvoice(
 
   await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId);
   await insertInvoiceItems(invoiceId, data.items);
+  await preparePricesInBackground(invoiceId);
 }
 
-/** Colonnes de prix de vente (migration 003) ; null → complétées par le trigger SQL. */
-function pricingColumns(item: InvoiceItem) {
-  return {
-    frais_transport_attribues: item.frais_transport_attribues ?? null,
-    cout_de_revient_unitaire: item.cout_de_revient_unitaire ?? null,
-    prix_de_vente_conseille: item.prix_de_vente_conseille ?? null,
-  };
+/**
+ * Prix de vente suggérés : préparés après la validation, traités plus tard dans l'écran
+ * « Prix de vente ». Une erreur ici (ex. migration 005 absente) ne doit pas bloquer la validation.
+ */
+async function preparePricesInBackground(invoiceId: string): Promise<void> {
+  try {
+    await preparePriceSuggestions(invoiceId);
+  } catch (err) {
+    console.warn('Prix de vente suggérés non préparés :', err);
+  }
 }
 
 async function insertInvoiceItems(invoiceId: string, items: InvoiceItem[]): Promise<void> {
   if (!items.length) return;
-  const base = items.map((item) => ({
-    invoice_id: invoiceId,
-    product_name: item.product_name,
-    quantity: item.quantity,
-    unit: item.unit,
-    unit_price: item.unit_price,
-    total_price: item.total_price || item.quantity * item.unit_price,
-  }));
-  const { error } = await supabase
-    .from('invoice_items')
-    .insert(base.map((row, i) => ({ ...row, ...pricingColumns(items[i]) })));
-  if (!error) return;
-  // Base pas encore migrée (003_selling_price.sql) : on enregistre sans les colonnes de prix.
-  if (/prix_de_vente|cout_de_revient|frais_transport_attribues/i.test(error.message)) {
-    const { error: retry } = await supabase.from('invoice_items').insert(base);
-    if (retry) throw retry;
-    return;
-  }
-  throw error;
-}
-
-/**
- * Dernier prix d'achat validé de chaque produit (clé = productKey), hors facture en cours.
- * Sert à l'alerte de hausse sur l'écran de validation.
- */
-export async function getLastPurchasePrices(
-  userId: string,
-  excludeInvoiceId?: string,
-): Promise<Map<string, LastPurchasePrice>> {
-  const result = new Map<string, LastPurchasePrice>();
-  const consider = (inv: Pick<Invoice, 'invoice_date' | 'created_at' | 'supplier_name_raw'>, item: InvoiceItem) => {
-    const key = productKey(item.product_name);
-    const unit_price = Number(item.unit_price);
-    if (!key || !(unit_price > 0)) return;
-    const date = String(inv.invoice_date || inv.created_at);
-    const prev = result.get(key);
-    if (!prev || date > prev.date) {
-      result.set(key, { unit_price, date, supplier_name_raw: inv.supplier_name_raw });
-    }
-  };
-
-  if (isDemoMode()) {
-    demo
-      .demoGetValidatedInvoices()
-      .filter((inv) => inv.id !== excludeInvoiceId)
-      .forEach((inv) => (inv.invoice_items || []).forEach((item) => consider(inv, item)));
-    return result;
-  }
-
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('id, invoice_date, created_at, supplier_name_raw')
-    .eq('owner_id', userId)
-    .eq('status', 'validated');
-  const list = (invoices || []).filter((i) => i.id !== excludeInvoiceId);
-  if (!list.length) return result;
-
-  const byId = new Map(list.map((i) => [i.id, i]));
-  const { data: items } = await supabase
-    .from('invoice_items')
-    .select('invoice_id, product_name, unit_price')
-    .in('invoice_id', [...byId.keys()]);
-  (items || []).forEach((item) => {
-    const inv = byId.get(item.invoice_id);
-    if (inv) consider(inv as Invoice, item as InvoiceItem);
-  });
-  return result;
+  const { error } = await supabase.from('invoice_items').insert(
+    items.map((item) => ({
+      invoice_id: invoiceId,
+      product_name: item.product_name,
+      quantity: item.quantity,
+      unit: item.unit,
+      unit_price: item.unit_price,
+      total_price: item.total_price || item.quantity * item.unit_price,
+    })),
+  );
+  if (error) throw error;
 }
 
 export async function updateInvoiceSupplier(invoiceId: string, supplierNameRaw: string): Promise<void> {
@@ -460,6 +408,8 @@ export async function flushOfflineQueue(userId: string): Promise<{ ok: number; f
       }
 
       await insertInvoiceItems(scan.id, scan.items);
+      // Facture validée hors ligne : les prix de vente sont préparés une fois synchronisée.
+      if (scan.status === 'validated') await preparePricesInBackground(scan.id);
 
       await deleteOfflineScan(scan.id);
       ok += 1;

@@ -9,7 +9,8 @@ import { usePwaInstall } from '../hooks/usePwaInstall';
 import { useAuth } from '../context/AuthContext';
 import { flushOfflineQueue, getOfflineQueueCount, getValidatedInvoicesForMonth } from '../lib/invoices';
 import { formatPhoneDisplay, loginPhoneFromInternalEmail } from '../lib/auth/phone-auth';
-import { DEFAULT_MARGIN_PCT } from '../lib/pricing';
+import { DEFAULT_MARGIN } from '../lib/pricing';
+import { getDefaultMargin, setDefaultMargin } from '../lib/productPrices';
 import { MarginPicker } from '../components/ui/MarginPicker';
 import {
   buildMonthlyCsv,
@@ -37,7 +38,7 @@ export default function ProfilePage() {
   const [telephone, setTelephone] = useState('');
   const [adresse, setAdresse] = useState('');
   const [quartier, setQuartier] = useState('');
-  const [marge, setMarge] = useState(String(DEFAULT_MARGIN_PCT));
+  const [marge, setMarge] = useState(String(DEFAULT_MARGIN * 100));
   const [saving, setSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState('');
   const [profileError, setProfileError] = useState('');
@@ -52,8 +53,14 @@ export default function ProfilePage() {
     setTelephone(profile?.telephone ? formatPhoneDisplay(profile.telephone) : '');
     setAdresse(profile?.adresse || '');
     setQuartier(profile?.quartier || '');
-    setMarge(String(profile?.marge_beneficiaire_defaut ?? DEFAULT_MARGIN_PCT));
   }, [profile]);
+
+  useEffect(() => {
+    if (!user) return;
+    getDefaultMargin()
+      .then((m) => setMarge(String(Math.round(m * 1000) / 10)))
+      .catch(() => undefined);
+  }, [user]);
 
   const handleSaveProfile = async (e: FormEvent) => {
     e.preventDefault();
@@ -66,8 +73,8 @@ export default function ProfilePage() {
         telephone,
         adresse,
         quartier,
-        marge_beneficiaire_defaut: marge.trim() === '' ? DEFAULT_MARGIN_PCT : Number(marge),
       });
+      await setDefaultMargin((marge.trim() === '' ? DEFAULT_MARGIN * 100 : Number(marge)) / 100);
       setProfileMsg(
         isLocalDemo
           ? 'Profil mis à jour pour cette session démo.'
@@ -188,7 +195,7 @@ export default function ProfilePage() {
             onChange={(e) => setQuartier(e.target.value)}
             placeholder="Adawlato, Assivito…"
           />
-          <MarginPicker value={marge} onChange={setMarge} title="Votre bénéfice habituel" />
+          <MarginPicker value={marge} onChange={setMarge} title="Ma marge habituelle (%)" />
           {profileError && <p className="text-sm text-red-600">{profileError}</p>}
           {profileMsg && <p className="text-xs text-[#1E3A8A]">{profileMsg}</p>}
           <Button type="submit" fullWidth disabled={saving}>

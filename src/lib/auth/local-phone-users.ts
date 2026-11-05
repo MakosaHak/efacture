@@ -63,7 +63,7 @@ export function localUserToProfile(user: LocalPhoneUser): Profile {
     telephone: user.profile.telephone || user.phone,
     adresse: user.profile.adresse || '',
     quartier: user.profile.quartier || '',
-    marge_beneficiaire_defaut: user.profile.marge_beneficiaire_defaut,
+    default_margin: user.profile.default_margin,
     created_at: now,
     updated_at: now,
   };

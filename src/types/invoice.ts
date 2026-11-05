@@ -6,8 +6,8 @@ export interface Profile {
   telephone: string;
   adresse: string;
   quartier: string;
-  /** Marge bénéficiaire par défaut en % (15 = 15 %). */
-  marge_beneficiaire_defaut?: number;
+  /** Marge globale par défaut (0.15 = 15 %). */
+  default_margin?: number;
   created_at: string;
   updated_at: string;
 }
@@ -37,16 +37,30 @@ export interface InvoiceItem {
   unit: string;
   unit_price: number;
   total_price: number;
-  frais_transport_attribues?: number | null;
-  cout_de_revient_unitaire?: number | null;
-  prix_de_vente_conseille?: number | null;
 }
 
-/** Dernier prix d'achat connu d'un produit (alerte de hausse). */
-export interface LastPurchasePrice {
-  unit_price: number;
-  date: string;
-  supplier_name_raw: string;
+/** Prix de vente d'un produit (table product_prices). */
+export interface ProductPrice {
+  product_key: string;
+  product_name: string;
+  /** Marge apprise ; null tant que jamais confirmée (on utilise alors la marge globale). */
+  margin: number | null;
+  last_purchase_price: number;
+  previous_purchase_price: number | null;
+  suggested_price: number;
+  /** Prix confirmé par le commerçant ; null tant que jamais confirmé. */
+  selling_price: number | null;
+  status: 'pending' | 'confirmed';
+  confirmations: number;
+  updated_at: string;
+}
+
+/** Suggestion affichée à l'écran « Prix de vente ». */
+export interface PriceSuggestion extends ProductPrice {
+  is_new: boolean;
+  is_increase: boolean;
+  /** Produit nouveau ou hausse > 10 % : section « À vérifier ». */
+  needs_review: boolean;
 }
 
 export interface OCRRawData {

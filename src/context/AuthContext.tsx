@@ -404,14 +404,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         telephone: phone.replace(/\D/g, '').slice(-8),
         adresse: p.adresse || '',
         quartier: p.quartier || '',
-        ...(p.marge_beneficiaire_defaut != null ? { marge_beneficiaire_defaut: p.marge_beneficiaire_defaut } : {}),
+        ...(p.default_margin != null ? { default_margin: p.default_margin } : {}),
       };
       const upsertProfile = (values: typeof row) =>
         supabase.from('profiles').upsert(values, { onConflict: 'id' }).select('*').single();
       let { data: created, error: profileErr } = await upsertProfile(row);
-      // Base pas encore migrée (003_selling_price.sql) : on crée le profil sans la marge.
-      if (profileErr && /marge_beneficiaire_defaut/i.test(profileErr.message)) {
-        const { marge_beneficiaire_defaut: _marge, ...rest } = row;
+      // Base pas encore migrée (005_product_prices.sql) : on crée le profil sans la marge.
+      if (profileErr && /default_margin/i.test(profileErr.message)) {
+        const { default_margin: _margin, ...rest } = row;
         ({ data: created, error: profileErr } = await upsertProfile(rest));
       }
       if (profileErr) throw supabaseError(profileErr);
@@ -463,20 +463,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     };
 
-    if (data.marge_beneficiaire_defaut != null) {
-
-      const marge = Number(data.marge_beneficiaire_defaut);
-
-      if (!Number.isFinite(marge) || marge < 0 || marge > 1000) {
-
-        throw new Error('Marge bénéficiaire invalide (entre 0 et 1000 %).');
-
-      }
-
-      patch.marge_beneficiaire_defaut = marge;
-
-    }
-
 
 
     if (isLocalDemo || isDemoMode()) {
@@ -513,31 +499,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!isSupabaseConfigured) throw new Error('Profil introuvable.');
 
-    const saveProfile = (values: Partial<ProfileInput>) =>
+    const { data: row, error } = await supabase
 
-      supabase
+      .from('profiles')
 
-        .from('profiles')
+      .update({ ...patch, updated_at: new Date().toISOString() })
 
-        .update({ ...values, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
 
-        .eq('id', user.id)
+      .select('*')
 
-        .select('*')
-
-        .single();
-
-    let { data: row, error } = await saveProfile(patch);
-
-    // Base pas encore migrée (003_selling_price.sql) : on enregistre le reste du profil.
-
-    if (error && /marge_beneficiaire_defaut/i.test(error.message)) {
-
-      const { marge_beneficiaire_defaut: _marge, ...rest } = patch;
-
-      ({ data: row, error } = await saveProfile(rest));
-
-    }
+      .single();
 
     if (error) throw error;
 
