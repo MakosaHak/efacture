@@ -36,7 +36,7 @@ export function SplashScreen({ onDone }: SplashScreenProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white transition-opacity duration-500 ${fade ? 'opacity-0' : 'opacity-100'}`}
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-gradient-to-b from-[#E2E8F0] via-[#DCE5EF] to-[#D5DFEC] transition-opacity duration-500 ${fade ? 'opacity-0' : 'opacity-100'}`}
       role="presentation"
     >
       <img
@@ -44,15 +44,15 @@ export function SplashScreen({ onDone }: SplashScreenProps) {
         alt="efacture"
         className="mb-6 h-28 w-auto aspect-[612/408] object-contain"
       />
-      <h1 className="mb-2 text-3xl font-bold tracking-tight">
-        <span className="text-[#006d41]">e</span>
-        <span className="text-[#1e3a5f]">facture</span>
+      <h1 className="mb-2 font-display text-3xl font-bold tracking-tight">
+        <span className="text-[#2563EB]">e</span>
+        <span className="text-[#0F172A]">facture</span>
       </h1>
-      <p className="max-w-[280px] text-center text-sm font-medium text-[#1e3a5f]">
+      <p className="max-w-[280px] text-center text-sm font-medium text-[#1E3A8A]">
         Scanner &amp; Gérer Vos Achats au Togo
       </p>
-      <div className="mt-10 h-1 w-16 overflow-hidden rounded-full bg-[#e8f5ee]">
-        <div className="h-full animate-pulse rounded-full bg-[#006d41]" style={{ width: '70%' }} />
+      <div className="mt-10 h-1.5 w-16 overflow-hidden rounded-full bg-[#CBD5E1] shadow-neo-inset">
+        <div className="h-full animate-pulse rounded-full bg-gradient-to-r from-[#2563EB] to-[#06B6D4]" style={{ width: '70%' }} />
       </div>
     </div>
   );

@@ -35,3 +35,13 @@ export function validateTogoPhone(raw: string): boolean {
   const d = normalizePhoneDigits(raw);
   return /^[79]\d{7}$/.test(d);
 }
+
+/** Numéro de connexion à partir de l'email interne, ou null. */
+export function loginPhoneFromInternalEmail(email?: string | null): string | null {
+  if (!email) return null;
+  const suffix = `@${PHONE_DOMAIN}`;
+  if (!email.endsWith(suffix)) return null;
+  const digits = email.slice(0, -suffix.length);
+  if (!/^[79]\d{7}$/.test(digits)) return null;
+  return formatPhoneDisplay(digits);
+}

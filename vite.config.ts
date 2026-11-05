@@ -1,12 +1,26 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Certificat local généré par mkcert et approuvé par Windows : évite l'avertissement
+// « Non sécurisé » du navigateur. Absent ailleurs → le serveur démarre en HTTP.
+const certDir = path.join(os.homedir(), '.vite-plugin-mkcert');
+const keyPath = path.join(certDir, 'dev.pem');
+const certPath = path.join(certDir, 'cert.pem');
+const https =
+  fs.existsSync(keyPath) && fs.existsSync(certPath)
+    ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
+    : undefined;
+
 export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    https,
   },
   plugins: [
     react(),
@@ -18,8 +32,8 @@ export default defineConfig({
         name: 'efacture — Scanner & Gérer Vos Achats',
         short_name: 'efacture',
         description: 'Scanner et gérer vos achats au Togo — commerçants TPME',
-        theme_color: '#006d41',
-        background_color: '#ffffff',
+        theme_color: '#0f172a',
+        background_color: '#cbd5e1',
         display: 'standalone',
         orientation: 'portrait-primary',
         start_url: '/',
@@ -79,8 +93,9 @@ export default defineConfig({
           },
         ],
       },
+      // En dev, le service worker peut servir l'app en HTTP et afficher « Non sécurisé ».
       devOptions: {
-        enabled: true,
+        enabled: false,
       },
     }),
   ],

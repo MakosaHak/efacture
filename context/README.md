@@ -60,9 +60,9 @@ Sur le PC, il y a **deux codebases** dans le dossier parent :
 ### Phase 4 — Authentification téléphone (Togo)
 - **Plus d’email visible** pour l’utilisateur
 - Numéro togolais : +228, 8 chiffres (commence par 7 ou 9)
-- Connexion : **mot de passe** OU **code OTP**
+- Connexion : **téléphone + mot de passe**
 - Email interne Supabase : `90123456@phone.e-facture.app` (invisible pour l’utilisateur)
-- OTP **simulé** : le code s’affiche à l’écran (pas de vrai SMS sans Twilio payant)
+- Pas d’OTP SMS (coût Twilio) : hors périmètre
 
 ### Phase 5 — PWA installable
 - `vite-plugin-pwa` + Workbox (cache offline)
@@ -95,7 +95,6 @@ Sur le PC, il y a **deux codebases** dans le dossier parent :
 | Dashboard KPI | ✅ |
 | Stats prix + fournisseurs (Recharts) | ✅ |
 | Auth téléphone + mot de passe | ✅ |
-| OTP simulé | ✅ |
 | Mode démo sans Supabase | ✅ |
 | PWA installable + cache | ✅ |
 | Splash / page de garde | ✅ |
@@ -112,9 +111,8 @@ Sur le PC, il y a **deux codebases** dans le dossier parent :
 | Push GitHub (compte Samuella01) | ❌ | **Haute** |
 | Déployer Netlify (HTTPS) | ❌ | **Haute** |
 | Tester caméra mobile en prod | ❌ | Moyenne |
-| SMS OTP réel (Twilio) | ❌ | Basse (payant) |
 | Mot de passe oublié | ❌ | Basse |
-| Édition profil | ❌ | Basse |
+| Édition profil | ✅ | Livré |
 | Export PDF mensuel | ❌ | Basse |
 
 ---
@@ -163,7 +161,6 @@ e-facture/
 │   │   ├── invoices.ts        → CRUD + analytics (bascule demo/supabase)
 │   │   ├── auth/
 │   │   │   ├── phone-auth.ts
-│   │   │   ├── otp-service.ts
 │   │   │   └── local-phone-users.ts
 │   │   ├── demo/
 │   │   │   ├── demo-mode.ts
@@ -212,11 +209,6 @@ e-facture/
 1. Comptes stockés en clair dans `localStorage` (`efacture-local-users`)
 2. Session dans `sessionStorage`
 3. Bouton « Mode démo » → données fictives, pas de compte requis
-
-### OTP
-- Code généré côté client, affiché à l’écran
-- Stocké temporairement en `sessionStorage`
-- **Pas de vrai SMS** pour l’instant
 
 ---
 
@@ -351,7 +343,7 @@ git push -u origin main
 | Supabase | Auth + DB + Storage gratuit |
 | Auth par téléphone | Commerçants togolais n’utilisent pas l’email |
 | Email interne pour Supabase | Supabase Auth exige un email ; contournement propre |
-| OTP simulé | SMS réel = Twilio payant |
+| Pas d’OTP SMS | SMS réel = Twilio payant ; hors périmètre |
 | Mode démo local | Permet soutenance / tests sans config Supabase |
 | PWA | Installable comme une app native, pas besoin Play Store |
 | Logo wide + icônes carrées | UI proportionnée + install OS conforme |
@@ -405,7 +397,7 @@ Si vous ouvrez ce projet dans Cursor ou un autre éditeur avec IA, copiez ceci :
 > **Projet actif :** `e-facture/` (React PWA, pas Django).  
 > **Objectif :** app efacture pour commerçants Lomé — scan factures, OCR Tesseract.js, Supabase.  
 > **État :** UI + PWA + mode démo **terminés**. Supabase + Netlify + push GitHub **pas encore faits**.  
-> **Auth :** téléphone Togo (+228), OTP simulé.  
+> **Auth :** téléphone Togo (+228) + mot de passe. Pas d’OTP SMS.  
 > **Lire :** `context/README.md` et `e-facture/README.md` avant toute modification.
 
 ---

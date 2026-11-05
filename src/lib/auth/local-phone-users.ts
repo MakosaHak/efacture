@@ -60,12 +60,28 @@ export function localUserToProfile(user: LocalPhoneUser): Profile {
   return {
     id: user.id,
     nom_commerce: user.profile.nom_commerce,
-    telephone: user.phone,
+    telephone: user.profile.telephone || user.phone,
     adresse: user.profile.adresse || '',
     quartier: user.profile.quartier || '',
+    marge_beneficiaire_defaut: user.profile.marge_beneficiaire_defaut,
     created_at: now,
     updated_at: now,
   };
+}
+
+export function localUpdateProfile(
+  userId: string,
+  patch: Omit<Profile, 'id' | 'created_at' | 'updated_at'>,
+): LocalPhoneUser | null {
+  const users = loadUsers();
+  const index = users.findIndex((u) => u.id === userId);
+  if (index < 0) return null;
+  users[index] = {
+    ...users[index],
+    profile: { ...users[index].profile, ...patch },
+  };
+  saveUsers(users);
+  return users[index];
 }
 
 export { phoneToInternalEmail, validateTogoPhone, normalizePhoneDigits };

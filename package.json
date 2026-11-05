@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:rules": "node scripts/verify-rules.mjs && node --experimental-strip-types --no-warnings scripts/verify-ocr.ts && node --experimental-strip-types --no-warnings scripts/verify-pricing.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

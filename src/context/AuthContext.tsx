@@ -18,15 +18,15 @@ import {
 
 import type { Session, User } from '@supabase/supabase-js';
 
-import { phoneToInternalEmail, validateTogoPhone } from '../lib/auth/phone-auth';
+import { phoneToInternalEmail, validateTogoPhone, normalizePhoneDigits } from '../lib/auth/phone-auth';
 
 import {
-
-  localFindByPhone,
 
   localSignInWithPhone,
 
   localSignUpWithPhone,
+
+  localUpdateProfile,
 
   localUserToProfile,
 
@@ -34,9 +34,7 @@ import {
 
 } from '../lib/auth/local-phone-users';
 
-import { sendPhoneOtp, verifyPhoneOtp, type SendOtpResult } from '../lib/auth/otp-service';
-
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { isSupabaseConfigured, supabase, supabaseError } from '../lib/supabase';
 
 import { DEMO_USER_ID, disableDemoMode, enableDemoMode, isDemoMode } from '../lib/demo/demo-mode';
 
@@ -66,11 +64,7 @@ interface AuthContextValue {
 
   signUpWithPhonePassword: (phone: string, password: string, profile: ProfileInput) => Promise<void>;
 
-  sendOtp: (phone: string) => Promise<SendOtpResult>;
-
-  signInWithPhoneOtp: (phone: string, code: string) => Promise<void>;
-
-  signUpWithPhoneOtp: (phone: string, code: string, profile: ProfileInput, password?: string) => Promise<void>;
+  updateProfile: (data: ProfileInput) => Promise<void>;
 
   signInDemo: () => Promise<void>;
 
@@ -346,9 +340,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const email = phoneToInternalEmail(phone);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) throw error;
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } catch (err) {
+      throw supabaseError(err);
+    }
 
     disableDemoMode();
 
@@ -386,28 +383,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const email = phoneToInternalEmail(phone);
 
-    const { data, error } = await supabase.auth.signUp({ email, password });
-
-    if (error) throw error;
+    let data;
+    try {
+      const result = await supabase.auth.signUp({ email, password });
+      if (result.error) throw result.error;
+      data = result.data;
+      if (!data.session) {
+        const signedIn = await supabase.auth.signInWithPassword({ email, password });
+        if (signedIn.error) throw signedIn.error;
+        data = { ...data, user: signedIn.data.user ?? data.user, session: signedIn.data.session };
+      }
+    } catch (err) {
+      throw supabaseError(err);
+    }
 
     if (data.user) {
-
-      const { error: profileErr } = await supabase.from('profiles').insert({
-
+      const row: Omit<Profile, 'created_at' | 'updated_at'> = {
         id: data.user.id,
-
-        nom_commerce: p.nom_commerce,
-
+        nom_commerce: p.nom_commerce.trim(),
         telephone: phone.replace(/\D/g, '').slice(-8),
-
         adresse: p.adresse || '',
-
         quartier: p.quartier || '',
+        ...(p.marge_beneficiaire_defaut != null ? { marge_beneficiaire_defaut: p.marge_beneficiaire_defaut } : {}),
+      };
+      const upsertProfile = (values: typeof row) =>
+        supabase.from('profiles').upsert(values, { onConflict: 'id' }).select('*').single();
+      let { data: created, error: profileErr } = await upsertProfile(row);
+      // Base pas encore migrée (003_selling_price.sql) : on crée le profil sans la marge.
+      if (profileErr && /marge_beneficiaire_defaut/i.test(profileErr.message)) {
+        const { marge_beneficiaire_defaut: _marge, ...rest } = row;
+        ({ data: created, error: profileErr } = await upsertProfile(rest));
+      }
+      if (profileErr) throw supabaseError(profileErr);
 
-      });
-
-      if (profileErr) throw profileErr;
-
+      setUser(data.user);
+      setSession(data.session);
+      setProfile(
+        (created as Profile) ?? {
+          ...row,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      );
     }
 
     disableDemoMode();
@@ -418,131 +435,113 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
 
-  const sendOtp = (phone: string) => {
+  const updateProfile = async (data: ProfileInput) => {
 
-    if (!validateTogoPhone(phone)) throw new Error('Numéro togolais invalide.');
+    const nom_commerce = data.nom_commerce.trim();
 
-    return sendPhoneOtp(phone);
+    if (nom_commerce.length < 2) throw new Error('Indiquez le nom du commerce.');
 
-  };
+    let telephone = data.telephone.trim();
 
+    if (telephone) {
 
+      if (!validateTogoPhone(telephone)) throw new Error('Numéro togolais invalide (ex: 90 12 34 56).');
 
-  const signInWithPhoneOtp = async (phone: string, code: string) => {
-
-    if (!validateTogoPhone(phone)) throw new Error('Numéro togolais invalide.');
-
-
-
-    if (!isSupabaseConfigured) {
-
-      await verifyPhoneOtp(phone, code);
-
-      const existing = localFindByPhone(phone);
-
-      if (!existing) throw new Error('Numéro non inscrit — créez un compte d\'abord.');
-
-      setUser(userFromLocal(existing));
-
-      setProfile(localUserToProfile(existing));
-
-      persistLocalSession(existing.id);
-
-      setIsLocalDemo(false);
-
-      return;
+      telephone = normalizePhoneDigits(telephone);
 
     }
 
+    const patch: ProfileInput = {
 
+      nom_commerce,
 
-    await verifyPhoneOtp(phone, code);
+      telephone,
 
-    disableDemoMode();
+      adresse: data.adresse.trim(),
 
-    setIsLocalDemo(false);
+      quartier: data.quartier.trim(),
 
-  };
+    };
 
+    if (data.marge_beneficiaire_defaut != null) {
 
+      const marge = Number(data.marge_beneficiaire_defaut);
 
-  const signUpWithPhoneOtp = async (
+      if (!Number.isFinite(marge) || marge < 0 || marge > 1000) {
 
-    phone: string,
-
-    code: string,
-
-    p: ProfileInput,
-
-    password?: string,
-
-  ) => {
-
-    if (!validateTogoPhone(phone)) throw new Error('Numéro togolais invalide.');
-
-
-
-    if (!isSupabaseConfigured) {
-
-      await verifyPhoneOtp(phone, code);
-
-      if (localFindByPhone(phone)) throw new Error('Ce numéro est déjà inscrit.');
-
-      const pwd = password && password.length >= 6 ? password : `otp-${crypto.randomUUID().slice(0, 8)}`;
-
-      const local = localSignUpWithPhone(phone, pwd, {
-
-        ...p,
-
-        telephone: phone.replace(/\D/g, '').slice(-8),
-
-      });
-
-      setUser(userFromLocal(local));
-
-      setProfile(localUserToProfile(local));
-
-      persistLocalSession(local.id);
-
-      setIsLocalDemo(false);
-
-      return;
-
-    }
-
-
-
-    await verifyPhoneOtp(phone, code);
-
-    const { data: sessionData } = await supabase.auth.getSession();
-
-    if (sessionData.session?.user) {
-
-      await supabase.from('profiles').upsert({
-
-        id: sessionData.session.user.id,
-
-        nom_commerce: p.nom_commerce,
-
-        telephone: phone.replace(/\D/g, '').slice(-8),
-
-        adresse: p.adresse || '',
-
-        quartier: p.quartier || '',
-
-      });
-
-      if (password && password.length >= 6) {
-
-        await supabase.auth.updateUser({ password });
+        throw new Error('Marge bénéficiaire invalide (entre 0 et 1000 %).');
 
       }
 
+      patch.marge_beneficiaire_defaut = marge;
+
     }
 
-    disableDemoMode();
 
-    setIsLocalDemo(false);
+
+    if (isLocalDemo || isDemoMode()) {
+
+      setProfile((current) =>
+
+        current ? { ...current, ...patch, updated_at: new Date().toISOString() } : current,
+
+      );
+
+      return;
+
+    }
+
+
+
+    const localId = sessionStorage.getItem(LOCAL_SESSION_KEY);
+
+    if (localId) {
+
+      const updated = localUpdateProfile(localId, patch);
+
+      if (!updated) throw new Error('Profil introuvable.');
+
+      setProfile(localUserToProfile(updated));
+
+      return;
+
+    }
+
+
+
+    if (!user) throw new Error('Non connecté.');
+
+    if (!isSupabaseConfigured) throw new Error('Profil introuvable.');
+
+    const saveProfile = (values: Partial<ProfileInput>) =>
+
+      supabase
+
+        .from('profiles')
+
+        .update({ ...values, updated_at: new Date().toISOString() })
+
+        .eq('id', user.id)
+
+        .select('*')
+
+        .single();
+
+    let { data: row, error } = await saveProfile(patch);
+
+    // Base pas encore migrée (003_selling_price.sql) : on enregistre le reste du profil.
+
+    if (error && /marge_beneficiaire_defaut/i.test(error.message)) {
+
+      const { marge_beneficiaire_defaut: _marge, ...rest } = patch;
+
+      ({ data: row, error } = await saveProfile(rest));
+
+    }
+
+    if (error) throw error;
+
+    setProfile(row as Profile);
 
   };
 
@@ -590,8 +589,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (isLocalDemo) {
 
-      setProfile(DEMO_PROFILE);
-
       return;
 
     }
@@ -620,11 +617,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       signUpWithPhonePassword,
 
-      sendOtp,
-
-      signInWithPhoneOtp,
-
-      signUpWithPhoneOtp,
+      updateProfile,
 
       signInDemo,
 

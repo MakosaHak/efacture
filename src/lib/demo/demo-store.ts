@@ -1,5 +1,6 @@
 import type { Profile, Invoice, InvoiceItem, OCRResult } from '../../types/invoice';
 import { DEMO_USER_ID } from './demo-mode';
+import { displaySupplier, normalizeSupplierName } from '../supplier';
 
 export const DEMO_PROFILE: Profile = {
   id: DEMO_USER_ID,
@@ -7,6 +8,7 @@ export const DEMO_PROFILE: Profile = {
   telephone: '+228 90 00 00 00',
   adresse: 'Marché Adawlato, Lomé',
   quartier: 'Adawlato',
+  marge_beneficiaire_defaut: 15,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 };
@@ -14,9 +16,9 @@ export const DEMO_PROFILE: Profile = {
 /** Image placeholder (SVG vert) pour les vignettes démo */
 export function demoPlaceholderPhoto(label: string): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
-    <rect fill="#006d41" width="400" height="300"/>
+    <rect fill="#1E3A8A" width="400" height="300"/>
     <text x="200" y="140" text-anchor="middle" fill="white" font-family="sans-serif" font-size="18" font-weight="bold">E-Facture</text>
-    <text x="200" y="170" text-anchor="middle" fill="#e8f5ee" font-family="sans-serif" font-size="14">${label}</text>
+    <text x="200" y="170" text-anchor="middle" fill="#E2E8F0" font-family="sans-serif" font-size="14">${label}</text>
   </svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
@@ -27,72 +29,131 @@ function daysAgo(n: number): string {
   return d.toISOString();
 }
 
+function monthsAgo(months: number, day = 12): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  d.setDate(day);
+  return d.toISOString();
+}
+
+function makeInvoice(
+  id: string,
+  supplier: string,
+  iso: string,
+  items: InvoiceItem[],
+  status: Invoice['status'] = 'validated',
+  notes = '',
+  transport_fee = 0,
+): Invoice {
+  const total = items.reduce((s, it) => s + Number(it.total_price), 0);
+  return {
+    id,
+    owner_id: DEMO_USER_ID,
+    supplier_id: null,
+    supplier_name_raw: supplier,
+    invoice_date: iso.slice(0, 10),
+    total_amount: total,
+    transport_fee,
+    photo_path: `demo:${id}`,
+    status,
+    ocr_raw_data: { provider: 'tesseract.js', confidence: 0.8, raw_text: 'Demo', transport_fee },
+    notes,
+    created_at: iso,
+    updated_at: iso,
+    invoice_items: items,
+  };
+}
+
+function line(id: string, product_name: string, quantity: number, unit: string, unit_price: number): InvoiceItem {
+  return {
+    id,
+    product_name,
+    quantity,
+    unit,
+    unit_price,
+    total_price: quantity * unit_price,
+  };
+}
+
 function buildSeedInvoices(): Invoice[] {
-  const items1: InvoiceItem[] = [
-    { id: 'i1', product_name: 'Riz parfumé 25kg', quantity: 2, unit: 'sac', unit_price: 12500, total_price: 25000 },
-    { id: 'i2', product_name: 'Huile végétale 1L', quantity: 10, unit: 'bouteille', unit_price: 850, total_price: 8500 },
-  ];
-  const items2: InvoiceItem[] = [
-    { id: 'i3', product_name: 'Sucre en poudre 1kg', quantity: 5, unit: 'sachet', unit_price: 750, total_price: 3750 },
-  ];
+  const may = monthsAgo(3);
+  const june = monthsAgo(2);
+  const july = monthsAgo(1);
+  const augA = daysAgo(8);
+  const augB = daysAgo(5);
 
   return [
-    {
-      id: 'demo-inv-1',
-      owner_id: DEMO_USER_ID,
-      supplier_id: null,
-      supplier_name_raw: 'Grossiste Adawlato',
-      invoice_date: daysAgo(2).slice(0, 10),
-      total_amount: 33500,
-      photo_path: 'demo:inv-1',
-      status: 'validated',
-      ocr_raw_data: { provider: 'tesseract.js', confidence: 0.82, raw_text: 'Demo' },
-      notes: '',
-      created_at: daysAgo(2),
-      updated_at: daysAgo(2),
-      invoice_items: items1,
-    },
-    {
-      id: 'demo-inv-2',
-      owner_id: DEMO_USER_ID,
-      supplier_id: null,
-      supplier_name_raw: 'Assivito Market',
-      invoice_date: daysAgo(5).slice(0, 10),
-      total_amount: 18750,
-      photo_path: 'demo:inv-2',
-      status: 'validated',
-      ocr_raw_data: { provider: 'tesseract.js', confidence: 0.78 },
-      notes: '',
-      created_at: daysAgo(5),
-      updated_at: daysAgo(5),
-      invoice_items: items2,
-    },
-    {
-      id: 'demo-inv-3',
-      owner_id: DEMO_USER_ID,
-      supplier_id: null,
-      supplier_name_raw: 'Fournisseur Tokoin',
-      invoice_date: null,
-      total_amount: 12000,
-      photo_path: 'demo:inv-3',
-      status: 'pending',
-      ocr_raw_data: { provider: 'tesseract.js', confidence: 0.45, raw_text: '' },
-      notes: 'OCR faible — vérifiez les champs.',
-      created_at: daysAgo(0),
-      updated_at: daysAgo(0),
-      invoice_items: [
-        { id: 'i4', product_name: 'Article détecté (à compléter)', quantity: 1, unit: 'pièce', unit_price: 12000, total_price: 12000 },
-      ],
-    },
+    makeInvoice('demo-may-a', 'Grossiste Adawlato', may, [
+      line('m-a-riz', 'Sac de Riz 50kg', 5, 'sac', 22000),
+      line('m-a-huile', 'Huile végétale 5L', 10, 'bidon', 4500),
+      line('m-a-ciment', 'Ciment 50kg', 4, 'sac', 5500),
+    ], 'validated', '', 3000),
+    makeInvoice('demo-jun-a', 'Grossiste Adawlato', june, [
+      line('j-a-riz', 'Sac de Riz 50kg', 4, 'sac', 22440),
+      line('j-a-huile', 'Huile végétale 5L', 6, 'bidon', 4590),
+      line('j-a-ciment', 'Ciment 50kg', 3, 'sac', 5610),
+    ], 'validated', '', 2500),
+    makeInvoice('demo-jun-b', 'Assivito Market', june, [
+      line('j-b-riz', 'Sac de Riz 50kg', 2, 'sac', 21000),
+      line('j-b-huile', 'Huile végétale 5L', 4, 'bidon', 4300),
+      line('j-b-ciment', 'Ciment 50kg', 2, 'sac', 5200),
+    ], 'validated', '', 1500),
+    makeInvoice('demo-jul-a', 'Grossiste Adawlato', july, [
+      line('jl-a-riz', 'Sac de Riz 50kg', 4, 'sac', 23113),
+      line('jl-a-huile', 'Huile végétale 5L', 6, 'bidon', 4728),
+      line('jl-a-ciment', 'Ciment 50kg', 3, 'sac', 5722),
+    ], 'validated', '', 2500),
+    makeInvoice('demo-jul-b', 'Assivito Market', july, [
+      line('jl-b-riz', 'Sac de Riz 50kg', 2, 'sac', 21100),
+      line('jl-b-huile', 'Huile végétale 5L', 4, 'bidon', 4320),
+      line('jl-b-ciment', 'Ciment 50kg', 2, 'sac', 5220),
+    ], 'validated', '', 1500),
+    makeInvoice('demo-aug-a', 'Grossiste Adawlato', augA, [
+      line('a-a-riz', 'Sac de Riz 50kg', 4, 'sac', 23806),
+      line('a-a-huile', 'Huile végétale 5L', 6, 'bidon', 4870),
+      line('a-a-ciment', 'Ciment 50kg', 3, 'sac', 5836),
+    ], 'validated', '', 2000),
+    makeInvoice('demo-aug-b', 'Assivito Market', augB, [
+      line('a-b-riz', 'Sac de Riz 50kg', 2, 'sac', 21150),
+      line('a-b-huile', 'Huile végétale 5L', 4, 'bidon', 4330),
+      line('a-b-ciment', 'Ciment 50kg', 2, 'sac', 5230),
+    ], 'validated', '', 1500),
+    makeInvoice(
+      'demo-inv-anon',
+      '',
+      daysAgo(3),
+      [line('i-anon', 'Farine de blé 1kg', 5, 'sachet', 900)],
+      'validated',
+      'Nom du vendeur absent sur le ticket — à compléter si vous le connaissez.',
+    ),
+    makeInvoice(
+      'demo-inv-3',
+      'Fournisseur Tokoin',
+      daysAgo(0),
+      [line('i4', 'Article détecté (à compléter)', 1, 'pièce', 12000)],
+      'pending',
+      'OCR faible — vérifiez les champs.',
+    ),
   ];
 }
 
 const photoUrls = new Map<string, string>();
 
 export function initDemoPhotos(): void {
-  photoUrls.set('demo:inv-1', demoPlaceholderPhoto('Adawlato'));
-  photoUrls.set('demo:inv-2', demoPlaceholderPhoto('Assivito'));
-  photoUrls.set('demo:inv-3', demoPlaceholderPhoto('En attente'));
+  const labels: Record<string, string> = {
+    'demo:demo-may-a': 'Adawlato mai',
+    'demo:demo-jun-a': 'Adawlato juin',
+    'demo:demo-jun-b': 'Assivito juin',
+    'demo:demo-jul-a': 'Adawlato juillet',
+    'demo:demo-jul-b': 'Assivito juillet',
+    'demo:demo-aug-a': 'Adawlato août',
+    'demo:demo-aug-b': 'Assivito août',
+    'demo:demo-inv-anon': 'Sans fournisseur',
+    'demo:demo-inv-3': 'En attente',
+  };
+  Object.entries(labels).forEach(([path, label]) => {
+    photoUrls.set(path, demoPlaceholderPhoto(label));
+  });
 }
 
 let invoices: Invoice[] = buildSeedInvoices();
@@ -114,7 +175,7 @@ export function demoFetchInvoices(search = '', status = ''): Invoice[] {
   if (status) list = list.filter((i) => i.status === status);
   if (search) {
     const q = search.toLowerCase();
-    list = list.filter((i) => i.supplier_name_raw.toLowerCase().includes(q));
+    list = list.filter((i) => displaySupplier(i.supplier_name_raw).toLowerCase().includes(q));
   }
   return list.map((inv) => ({ ...inv, invoice_items: [...(inv.invoice_items || [])] }));
 }
@@ -142,9 +203,10 @@ export function demoSaveScannedInvoice(_userId: string, file: File, ocr: OCRResu
     id: invoiceId,
     owner_id: DEMO_USER_ID,
     supplier_id: null,
-    supplier_name_raw: ocr.supplier_name,
+    supplier_name_raw: normalizeSupplierName(ocr.supplier_name),
     invoice_date: ocr.invoice_date || null,
     total_amount: parseFloat(ocr.total_amount) || 0,
+    transport_fee: 0,
     photo_path: photoPath,
     status: 'pending',
     ocr_raw_data: { provider: ocr.provider, confidence: ocr.confidence, raw_text: ocr.raw_text },
@@ -164,6 +226,7 @@ export function demoValidateInvoice(
     supplier_name_raw: string;
     invoice_date: string | null;
     total_amount: number;
+    transport_fee?: number;
     notes: string;
     items: InvoiceItem[];
   },
@@ -175,11 +238,20 @@ export function demoValidateInvoice(
     supplier_name_raw: data.supplier_name_raw,
     invoice_date: data.invoice_date,
     total_amount: data.total_amount,
+    transport_fee: data.transport_fee || 0,
+    ocr_raw_data: { ...invoices[idx].ocr_raw_data, transport_fee: data.transport_fee || 0 },
     notes: data.notes,
     status: 'validated',
     updated_at: new Date().toISOString(),
     invoice_items: data.items.map((item, i) => ({ ...item, id: item.id || `v-${i}` })),
   };
+}
+
+export function demoUpdateInvoiceSupplier(invoiceId: string, supplierName: string): void {
+  const inv = invoices.find((i) => i.id === invoiceId);
+  if (!inv) throw new Error('Facture introuvable');
+  inv.supplier_name_raw = supplierName;
+  inv.updated_at = new Date().toISOString();
 }
 
 export function demoRejectInvoice(invoiceId: string): void {

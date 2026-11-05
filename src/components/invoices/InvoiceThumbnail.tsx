@@ -5,14 +5,27 @@ export function InvoiceThumbnail({ photoPath, size = 48 }: { photoPath: string; 
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    let blobUrl: string | null = null;
     if (!photoPath) return;
-    getPhotoUrl(photoPath).then(setUrl);
+    getPhotoUrl(photoPath).then((next) => {
+      if (cancelled) {
+        if (next?.startsWith('blob:')) URL.revokeObjectURL(next);
+        return;
+      }
+      blobUrl = next;
+      setUrl(next);
+    });
+    return () => {
+      cancelled = true;
+      if (blobUrl?.startsWith('blob:')) URL.revokeObjectURL(blobUrl);
+    };
   }, [photoPath]);
 
   if (!url) {
     return (
       <div
-        className="flex shrink-0 items-center justify-center rounded-xl bg-[#e8f5ee] text-[#006d41]"
+        className="flex shrink-0 items-center justify-center rounded-xl bg-[#E2E8F0] text-[#1E3A8A]"
         style={{ width: size, height: size }}
       >
         <svg width={size * 0.4} height={size * 0.4} fill="none" stroke="currentColor" viewBox="0 0 24 24">

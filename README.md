@@ -32,15 +32,16 @@ Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assi
 
 | Fonctionnalité | Description |
 |----------------|-------------|
-| **Inscription / Connexion** | Téléphone togolais (+228, 8 chiffres) + mot de passe ou code OTP (simulé) |
+| **Inscription / Connexion** | Téléphone togolais (+228, 8 chiffres) + mot de passe |
 | **Scanner** | Caméra ou import galerie → compression image → OCR |
 | **Validation** | Correction fournisseur, date, lignes produits, montant |
 | **Historique** | Liste des factures, recherche, filtres par statut |
 | **Dashboard** | KPI du mois (dépenses, factures, inflation estimée) |
 | **Stats prix** | Évolution des prix, alertes hausse |
 | **Stats fournisseurs** | Dépenses par grossiste / marché |
-| **Profil** | Infos commerce, installation PWA |
+| **Profil** | Infos commerce éditables, export PDF/CSV, installation PWA |
 | **PWA** | Installable sur mobile et PC, cache offline, page de garde |
+| **File hors-ligne** | Scan sans réseau → IndexedDB → envoi auto à la reconnexion |
 
 ---
 
@@ -105,10 +106,9 @@ Navigation principale : barre du bas (Accueil, Scanner, Factures, Stats, Profil)
 - Format attendu : **8 chiffres** commençant par **7** ou **9** (ex. `90 12 34 56`)
 - Indicatif : **+228**
 
-### Deux modes de connexion
+### Connexion
 
-1. **Mot de passe** — recommandé en production
-2. **Code SMS (OTP)** — simulé en développement (code affiché à l'écran)
+**Mot de passe** — numéro togolais + mot de passe. Pas de code SMS.
 
 ### Email interne Supabase
 
@@ -159,6 +159,7 @@ Si les variables d'environnement ne sont pas configurées :
 
 - **Manifest** : nom `efacture`, thème vert `#006d41`
 - **Service Worker** : cache des assets, fonts, requêtes Supabase (NetworkFirst)
+- **File hors-ligne** : photos et saisie dans IndexedDB (`efacture-offline`) ; `OfflineSync` envoie dès que `online` revient. Les KPI cloud n’incluent pas les scans non synchronisés.
 - **Page de garde** : splash au premier lancement
 - **Installation** : bannière sur connexion + profil ; iOS via « Sur l'écran d'accueil »
 
@@ -268,10 +269,11 @@ efacture/
 │   ├── context/        # AuthContext
 │   ├── hooks/          # usePwaInstall
 │   ├── lib/
-│   │   ├── auth/       # Téléphone, OTP, users locaux
+│   │   ├── auth/       # Téléphone, users locaux
 │   │   ├── demo/       # Mode démo
 │   │   ├── ocr/        # Tesseract, parser, compression
-│   │   ├── invoices.ts # CRUD + analytics
+│   │   ├── offline/    # File IndexedDB des scans hors réseau
+│   │   ├── invoices.ts # CRUD + analytics + flush file hors-ligne
 │   │   └── supabase.ts
 │   └── types/
 ├── supabase/migrations/  # Schéma SQL
@@ -289,20 +291,22 @@ efacture/
 - La clé **anon** Supabase est publique (côté client) ; la sécurité repose sur **RLS** PostgreSQL et les policies Storage
 - Ne pas utiliser la clé **service_role** dans le frontend
 - Mode local sans Supabase : mots de passe en clair dans le navigateur — **démo uniquement**
-- OTP SMS réel non configuré (simulation) — utiliser mot de passe en production
 
 ---
 
 ## Ce qui reste à faire
 
-- [ ] Configurer Supabase + `.env.local`
-- [ ] Déployer sur Netlify (HTTPS)
-- [ ] Tester scan caméra sur téléphone
-- [ ] SMS OTP réel (Twilio + Supabase Phone — payant)
+- [x] Configurer Supabase + `.env.local`
+- [x] Déployer sur Netlify (HTTPS)
+- [ ] Tester scan caméra sur téléphone (HTTPS)
+- [ ] Vérifier bucket `invoice-photos` (privé) + policies Storage
+- [ ] Désactiver la confirmation d'email (Auth) si besoin
+- [ ] Déclarer l'URL Netlify dans Supabase (Site URL / Redirect URLs)
 - [ ] Mot de passe oublié
-- [ ] Édition du profil
-- [ ] Export PDF mensuel
-- [ ] File d'attente offline pour scans sans réseau
+- [x] Édition du profil
+- [x] Export PDF / CSV mensuel
+- [x] File d'attente offline pour scans sans réseau
+- [ ] Tests auprès de commerçants
 
 ---
 

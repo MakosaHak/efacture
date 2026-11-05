@@ -4,7 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { compressFile, isMobileDevice } from '../lib/ocr/image-utils';
 import { runOcrOnFile } from '../lib/ocr/tesseract-runner';
+import { parseReceiptText } from '../lib/ocr/ocr-parser';
 import { saveScannedInvoice } from '../lib/invoices';
+import { isOfflineInvoiceId } from '../lib/offline/queue';
 
 type Screen = 'idle' | 'camera' | 'preview' | 'loading';
 
@@ -14,7 +16,6 @@ export default function ScannerPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const previewUrlRef = useRef<string | null>(null);
 
@@ -23,6 +24,7 @@ export default function ScannerPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const [progress, setProgress] = useState('');
+  const mobile = isMobileDevice();
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -52,29 +54,46 @@ export default function ScannerPage() {
   };
 
   const handleImport = async (file: File) => {
-    setToast('Préparation de l\'image…');
+    setToast('');
     stopStream();
+    setProgress('Préparation de la photo…');
+    setScreen('loading');
+    // Laisse le spinner s'afficher avant le décodage (sinon l'UI reste figée).
+    await new Promise((r) => setTimeout(r, 50));
     try {
-      const optimized = await compressFile(file);
+      const optimized = await compressFile(file, mobile ? 480 : undefined);
       showPreview(optimized);
-      setToast('');
     } catch {
-      showPreview(file);
-      setToast('');
+      setToast('Photo trop lourde. Choisis une image plus légère dans la galerie.');
+      setScreen('idle');
     }
   };
 
+  const resetToIdle = () => {
+    setCapturedFile(null);
+    revokePreview();
+    setPreviewUrl(null);
+    stopStream();
+    setScreen('idle');
+  };
+
+  /** Caméra dans l'app (basse résolution) — évite le plantage mémoire d'Android. */
   const openCamera = async () => {
     setToast('');
-    if (isMobileDevice() || !navigator.mediaDevices?.getUserMedia) {
-      cameraRef.current?.click();
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setToast('Caméra non disponible. Importe une photo depuis la galerie.');
       return;
     }
+
     setScreen('camera');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
         audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: mobile ? 960 : 1280, max: mobile ? 1280 : 1920 },
+          height: { ideal: mobile ? 720 : 960, max: mobile ? 960 : 1440 },
+        },
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -82,8 +101,8 @@ export default function ScannerPage() {
         await videoRef.current.play();
       }
     } catch {
-      cameraRef.current?.click();
       setScreen('idle');
+      setToast('Impossible d\'ouvrir la caméra. Utilise « importer une photo ».');
     }
   };
 
@@ -92,44 +111,78 @@ export default function ScannerPage() {
     const canvas = canvasRef.current;
     if (!video?.videoWidth || !canvas) return;
 
-    const maxDim = isMobileDevice() ? 960 : 1400;
+    const maxDim = mobile ? 640 : 1200;
     const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
-    canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     canvas.toBlob(
       (blob) => {
-        if (!blob) return;
+        if (!blob) {
+          setToast('Capture échouée. Réessaie.');
+          return;
+        }
         stopStream();
+        canvas.width = 0;
+        canvas.height = 0;
         showPreview(new File([blob], 'facture.jpg', { type: 'image/jpeg' }));
       },
       'image/jpeg',
-      isMobileDevice() ? 0.72 : 0.88,
+      mobile ? 0.55 : 0.85,
     );
   };
 
   const upload = async () => {
     if (!capturedFile || !user) return;
     setScreen('loading');
-    setProgress('Lecture OCR…');
+    setProgress('Préparation…');
+
+    let workingFile = capturedFile;
 
     try {
-      const ocr = await runOcrOnFile(capturedFile, (p) => {
-        setProgress(`Lecture OCR… ${Math.round(p * 100)}%`);
-      });
+      revokePreview();
+      setPreviewUrl(null);
+
+      workingFile = await compressFile(capturedFile, mobile ? 400 : undefined);
+      setCapturedFile(workingFile);
+
+      // Sur téléphone : on n'exécute PAS Tesseract (trop gourmand en RAM).
+      // La photo est enregistrée ; la saisie se fait sur l'écran de validation.
+      let ocr = parseReceiptText('', 0);
+      if (!mobile) {
+        setProgress('Lecture OCR…');
+        ocr = await runOcrOnFile(workingFile, (p) => {
+          setProgress(`Lecture OCR… ${Math.round(p * 100)}%`);
+        });
+      } else {
+        setProgress('Enregistrement de la photo…');
+      }
+
       setProgress('Enregistrement…');
-      const invoiceId = await saveScannedInvoice(user.id, capturedFile, ocr);
-      navigate(`/factures/${invoiceId}/valider`);
+      const invoiceId = await saveScannedInvoice(user.id, workingFile, ocr);
+      if (isOfflineInvoiceId(invoiceId)) {
+        setProgress('Enregistré sur l’appareil…');
+      }
+      navigate(`/factures/${invoiceId}/valider`, {
+        state: { queued: isOfflineInvoiceId(invoiceId) },
+      });
     } catch (err) {
-      setScreen('preview');
-      setToast(err instanceof Error ? err.message : 'Erreur d\'envoi');
+      showPreview(workingFile);
+      const msg = err instanceof Error ? err.message : 'Erreur d\'envoi';
+      setToast(
+        /memor|mémoir|memory|quota/i.test(msg)
+          ? 'Mémoire insuffisante. Importe une photo plus légère depuis la galerie.'
+          : msg,
+      );
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0b0b] text-white">
-      <header className="flex items-center justify-between px-4 py-3">
+    <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#0F172A] text-white">
+      <header className="relative z-20 flex shrink-0 items-center justify-between px-4 py-3">
         <Link to="/" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
           ✕
         </Link>
@@ -137,7 +190,11 @@ export default function ScannerPage() {
           <p className="font-bold">E-Facture</p>
           <p className="text-[10px] tracking-widest text-white/60">SCANNER</p>
         </div>
-        <button type="button" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10" onClick={() => fileRef.current?.click()}>
+        <button
+          type="button"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10"
+          onClick={() => fileRef.current?.click()}
+        >
           🖼
         </button>
       </header>
@@ -148,15 +205,21 @@ export default function ScannerPage() {
 
       {screen === 'idle' && (
         <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-[#006d41] text-4xl">🧾</div>
+          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-cyan-400/40 bg-gradient-to-tr from-[#0F172A] via-[#1E3A8A] to-[#2563EB] text-4xl shadow-floating-cam">🧾</div>
           <h2 className="mb-2 text-xl font-bold">Numérisez votre facture</h2>
           <p className="mb-8 text-sm text-white/70">
-            Photo légère → OCR Tesseract.js (gratuit) dans le navigateur
+            {mobile
+              ? 'Caméra légère dans l\'appli — tu complètes les infos ensuite'
+              : 'Photo → OCR Tesseract.js dans le navigateur'}
           </p>
           <Button fullWidth onClick={openCamera} className="mb-3 max-w-xs">
             Ouvrir la caméra
           </Button>
-          <button type="button" className="text-sm text-white/60 underline" onClick={() => fileRef.current?.click()}>
+          <button
+            type="button"
+            className="text-sm text-white/60 underline"
+            onClick={() => fileRef.current?.click()}
+          >
             ou importer une photo existante
           </button>
         </div>
@@ -167,34 +230,70 @@ export default function ScannerPage() {
           <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
           <canvas ref={canvasRef} className="hidden" />
           <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-8">
-            <Link to="/" className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20">✕</Link>
-            <button type="button" onClick={capture} className="h-16 w-16 rounded-full border-4 border-white bg-white/30" />
-            <button type="button" onClick={() => fileRef.current?.click()} className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20">🖼</button>
+            <Link to="/" className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20">
+              ✕
+            </Link>
+            <button
+              type="button"
+              onClick={capture}
+              className="h-16 w-16 rounded-full border-4 border-white bg-white/30"
+              aria-label="Prendre la photo"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                stopStream();
+                fileRef.current?.click();
+              }}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20"
+            >
+              🖼
+            </button>
           </div>
         </div>
       )}
 
       {screen === 'preview' && previewUrl && (
-        <div className="flex flex-1 flex-col">
-          <img src={previewUrl} alt="Aperçu" className="flex-1 object-contain" />
-          <div className="flex gap-3 p-4">
-            <Button variant="secondary" fullWidth onClick={() => { setCapturedFile(null); revokePreview(); setPreviewUrl(null); openCamera(); }}>
-              Reprendre
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <img
+            src={previewUrl}
+            alt="Aperçu"
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+          <div className="absolute inset-x-0 bottom-0 z-20 flex gap-3 bg-gradient-to-t from-black via-black/90 to-transparent p-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <Button
+              variant="secondary"
+              fullWidth
+              className="border-white/40 bg-white/10 text-white hover:bg-white/20"
+              onClick={resetToIdle}
+            >
+              Changer
             </Button>
-            <Button fullWidth onClick={upload}>Analyser</Button>
+            <Button fullWidth onClick={upload}>
+              {mobile ? 'Enregistrer' : 'Analyser'}
+            </Button>
           </div>
         </div>
       )}
 
       {screen === 'loading' && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#006d41] border-t-transparent" />
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#2563EB] border-t-transparent" />
           <p>{progress || 'Analyse en cours…'}</p>
         </div>
       )}
 
-      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])} />
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])} />
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (f) void handleImport(f);
+        }}
+      />
     </div>
   );
 }

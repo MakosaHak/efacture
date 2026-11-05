@@ -23,9 +23,9 @@ export function PwaUpdateToast() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-[100] mx-auto max-w-[480px] rounded-xl border border-[#e8ecf0] bg-white p-3 shadow-lg">
-      <p className="mb-2 text-sm font-semibold text-[#1a1f2e]">Mise à jour disponible</p>
-      <p className="mb-3 text-xs text-[#6b7280]">Une nouvelle version d&apos;efacture est prête.</p>
+    <div className="fixed bottom-20 left-4 right-4 z-[100] mx-auto max-w-[440px] rounded-2xl border border-white/80 bg-gradient-to-br from-[#EEF2F6] to-[#E2E8F0] p-3 shadow-neo-card">
+      <p className="mb-2 text-sm font-semibold text-[#0F172A]">Mise à jour disponible</p>
+      <p className="mb-3 text-xs text-[#64748B]">Une nouvelle version d&apos;efacture est prête.</p>
       <div className="flex gap-2">
         <Button
           type="button"
