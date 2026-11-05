@@ -16,6 +16,7 @@ Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assi
 - [Pages et navigation](#pages-et-navigation)
 - [Authentification](#authentification)
 - [Parcours scan d'une facture](#parcours-scan-dune-facture)
+- [Prix de vente suggérés](#prix-de-vente-suggérés)
 - [Mode démo vs production](#mode-démo-vs-production)
 - [PWA (installation)](#pwa-installation)
 - [Installation locale](#installation-locale)
@@ -39,7 +40,8 @@ Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assi
 | **Dashboard** | KPI du mois (dépenses, factures, inflation estimée) |
 | **Stats prix** | Évolution des prix, alertes hausse |
 | **Stats fournisseurs** | Dépenses par grossiste / marché |
-| **Profil** | Infos commerce éditables, export PDF/CSV, installation PWA |
+| **Prix de vente suggérés** | Après validation, un prix de vente proposé par produit ; marge apprise par produit |
+| **Profil** | Infos commerce éditables, marge habituelle, export PDF/CSV, installation PWA |
 | **PWA** | Installable sur mobile et PC, cache offline, page de garde |
 | **File hors-ligne** | Scan sans réseau → IndexedDB → envoi auto à la reconnexion |
 
@@ -93,6 +95,7 @@ Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assi
 | `/factures/:id/valider` | Validation OCR | Connecté |
 | `/stats/prix` | Comparateur de prix | Connecté |
 | `/stats/fournisseurs` | Dépenses fournisseurs | Connecté |
+| `/prix-de-vente` | Prix de vente suggérés à confirmer | Connecté |
 | `/profil` | Profil + install PWA | Connecté |
 
 Navigation principale : barre du bas (Accueil, Scanner, Factures, Stats, Profil).
@@ -141,6 +144,52 @@ Si les variables d'environnement ne sont pas configurées :
 9. L'utilisateur corrige → statut "validated"
 10. Dashboard et stats recalculés
 ```
+
+---
+
+## Prix de vente suggérés
+
+### Principe
+
+Après la validation d'une facture, l'application prépare en arrière-plan un prix de vente pour
+chaque produit acheté. Rien n'est ajouté à l'écran de scan ni à l'écran de validation : le
+commerçant traite les suggestions quand il veut, dans l'écran **Prix de vente** (`/prix-de-vente`),
+signalé par un badge « N prix de vente à confirmer » sur le tableau de bord.
+
+Ce n'est **pas** un modèle de machine learning : c'est une **suggestion adaptative à moyenne
+mobile**. Aucune API externe, aucune dépendance ML. Code : `src/lib/pricing.ts` (calcul pur) et
+`src/lib/productPrices.ts` (lecture/écriture démo ou Supabase).
+
+### Formules
+
+```
+prix suggéré   = arrondi_25( prix_achat_unitaire × (1 + marge) )
+marge utilisée = marge apprise du produit, sinon marge habituelle du commerçant (15 % par défaut)
+marge réelle   = prix_final / prix_achat − 1
+nouvelle marge = 0,7 × ancienne marge + 0,3 × marge réelle      (bornée entre 0 % et 100 %)
+```
+
+- `arrondi_25` : multiple de 25 FCFA le plus proche (1 237 → 1 225).
+- Pas d'apprentissage si le prix final est inférieur au prix d'achat (autorisé, mais signalé).
+- « Tout accepter » vaut une confirmation par ligne au prix suggéré.
+- Plusieurs lignes du même produit sur une facture : prix unitaire moyen pondéré par la quantité.
+- Produits rapprochés par un nom normalisé (« Riz parfumé 25kg » = « riz parfume 25 kg »).
+- Section « À vérifier » : produits nouveaux, ou prix d'achat en hausse de plus de 10 %.
+
+### Limites
+
+- Le prix d'achat utilisé est le prix unitaire de la facture, **sans** les frais de transport.
+- Le prix suggéré dépend uniquement de l'historique du commerçant : il ignore la concurrence,
+  la demande, les pertes et la vente au détail (sac acheté, revendu au kg).
+- Le rapprochement des produits repose sur le libellé : deux libellés différents pour le même
+  article donnent deux produits distincts.
+- La fonctionnalité **n'a pas été évaluée** auprès de commerçants réels ; aucun chiffre de
+  précision ou d'impact n'est revendiqué.
+- Hors ligne : une facture validée sans réseau ne génère ses suggestions qu'après synchronisation.
+
+> **Supabase** : exécuter `supabase/migrations/005_product_prices.sql` (colonne
+> `profiles.default_margin` + table `product_prices` avec RLS). Sans cette migration, la
+> validation fonctionne mais aucune suggestion n'est enregistrée.
 
 ---
 
@@ -205,7 +254,8 @@ npm run preview
 ## Configuration Supabase
 
 1. Créer un projet sur [supabase.com](https://supabase.com)
-2. Exécuter `supabase/migrations/001_initial.sql` dans le SQL Editor
+2. Exécuter dans le SQL Editor, dans l'ordre : `001_initial.sql`, `002_transport_fee.sql`,
+   `004_final_amount_supplier_link.sql`, `005_product_prices.sql` (dossier `supabase/migrations/`)
 3. Créer le bucket Storage **`invoice-photos`** (privé)
 4. Exécuter les policies Storage (fin du fichier SQL, section commentée)
 5. **Authentication → Email** : désactiver **Confirm email**
@@ -217,6 +267,7 @@ npm run preview
 - `suppliers` — fournisseurs
 - `invoices` — factures scannées
 - `invoice_items` — lignes produits
+- `product_prices` — prix de vente suggérés / confirmés et marge apprise par produit
 
 Row Level Security (RLS) : chaque utilisateur ne voit que ses données.
 
