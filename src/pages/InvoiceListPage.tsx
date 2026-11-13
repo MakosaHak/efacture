@@ -46,7 +46,7 @@ export default function InvoiceListPage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Historique" backTo="/" />
+      <AppHeader title="Mes reçus" backTo="/" />
 
       {queueCount > 0 && (
         <Card className="mb-3 border-cyan-200 bg-cyan-50">
@@ -85,7 +85,7 @@ export default function InvoiceListPage() {
         }}
       >
         <span>🔍</span>
-        <input name="q" defaultValue={search} placeholder="Rechercher une facture…" className="flex-1 bg-transparent text-sm outline-none" />
+        <input name="q" defaultValue={search} placeholder="Chercher un reçu…" className="flex-1 bg-transparent text-sm outline-none" />
       </form>
 
       <div className="mb-4 flex gap-2 overflow-x-auto">
@@ -101,7 +101,7 @@ export default function InvoiceListPage() {
         ))}
       </div>
 
-      <h2 className="mb-3 text-sm font-bold">Journal des factures</h2>
+      <h2 className="mb-3 text-sm font-bold">Tous vos reçus</h2>
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -109,9 +109,9 @@ export default function InvoiceListPage() {
         </div>
       ) : invoices.length === 0 ? (
         <Card className="text-center">
-          <p className="mb-4 text-sm text-[#64748B]">Aucune facture trouvée.</p>
+          <p className="mb-4 text-sm text-[#64748B]">Aucun reçu pour l’instant.</p>
           <Link to="/scanner" className="text-sm font-semibold text-[#1E3A8A]">
-            Scanner ma première facture
+            Scanner mon premier reçu
           </Link>
         </Card>
       ) : (

@@ -22,7 +22,7 @@ export default function OptimizePage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Optimisation" backTo="/" />
+      <AppHeader title="Conseil d’achat" backTo="/" />
 
       <p className="mb-4 text-xs leading-relaxed text-[#64748B]">
         L’app croise la tendance de prix de chaque fournisseur (régression linéaire) pour prédire qui sera le

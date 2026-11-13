@@ -123,6 +123,57 @@ function nearlyEqual(a: number, b: number): boolean {
   return Math.abs(a - b) / Math.max(a, b) <= 0.03;
 }
 
+/** Lettres que Tesseract confond avec 0 dans un groupe de milliers (« 34 goo », « 73 75e »). */
+const ZERO_LIKE = /[oOQDgGeEé]/g;
+
+/**
+ * Corrige les confusions lettre/chiffre les plus courantes, uniquement en contexte numérique :
+ * « 34 goo » → « 34 000 », « 73 75e » → « 73 750 », « 10 S 500 » → « 10 5 500 », « ©3 » → « 03 ».
+ */
+export function normalizeOcrLine(line: string): string {
+  const fixed = line.replace(/[©@](?=\d)/g, '0').replace(/(?<=\d)[©@]/g, '0');
+  const words = fixed.split(/(\s+)/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const prev = words[i - 2];
+    const next = words[i + 2];
+    // groupe de milliers (3 caractères) qui suit un nombre de 1 à 3 chiffres
+    if (prev && /^\d{1,3}$/.test(prev) && /^[\doOQDgGeEé]{3}$/.test(w) && /[^\d]/.test(w)) {
+      words[i] = w.replace(ZERO_LIKE, '0');
+    }
+    // « S » / « l » isolés devant un groupe de milliers : 5 / 1
+    if (/^[Ss]$/.test(w) && next && /^\d{3}$/.test(next)) words[i] = '5';
+    if (/^[lI|]$/.test(w) && next && /^\d{3}$/.test(next)) words[i] = '1';
+  }
+  return words.join('');
+}
+
+/** Nombre de zéros finaux : les prix FCFA sont presque toujours « ronds ». */
+function roundness(n: number): number {
+  let z = 0;
+  let v = Math.round(n);
+  while (v > 0 && v % 10 === 0) {
+    z++;
+    v /= 10;
+  }
+  return z + (Math.round(n) % 25 === 0 ? 0.5 : 0);
+}
+
+/**
+ * Quantité × prix unitaire ≈ total mais pas exactement : un chiffre a été mal lu.
+ * On garde la lecture la plus « ronde » (5 509 × 10 / 55 000 → 5 500 ; 3 200 × 20 / 64 009 → 64 000).
+ */
+export function reconcileAmounts(qty: number, unitPrice: number, total: number): { unitPrice: number; total: number } {
+  if (qty <= 0 || Math.abs(qty * unitPrice - total) < 1) return { unitPrice, total };
+  const fromTotal = total / qty;
+  const fromPrice = qty * unitPrice;
+  const keepTotal = Number.isInteger(fromTotal) && roundness(fromTotal) >= roundness(unitPrice);
+  const keepPrice = roundness(fromPrice) > roundness(total);
+  if (keepTotal && !keepPrice) return { unitPrice: fromTotal, total };
+  if (keepPrice) return { unitPrice, total: fromPrice };
+  return { unitPrice, total };
+}
+
 function looksLikeGarbage(line: string): boolean {
   const letters = (line.match(/[a-zA-ZàâéèêëïîôùûüçÀÂÉÈÊËÏÎÔÙÛÜÇ]/g) || []).length;
   const vowels = (line.match(/[aeiouyàâéèêëïîôùûüAEIOUYÀÂÉÈÊËÏÎÔÙÛÜ]/g) || []).length;
@@ -260,10 +311,56 @@ function parseTableAmounts(tokens: DigitTok[]): { qty: number; unitPrice: number
   return valid[0];
 }
 
+/** Lit un montant en partant de la fin : « 24 000 » (2 jetons) ou « 24000 » (1 jeton). */
+function amountsFromEnd(tokens: DigitTok[], end: number): Array<{ value: number; start: number }> {
+  const out: Array<{ value: number; start: number }> = [];
+  if (end < 0) return out;
+  out.push({ value: asInt(tokens[end].raw), start: end });
+  if (end >= 1 && tokens[end].raw.length === 3 && tokens[end - 1].raw.length <= 3) {
+    out.push({ value: joinThousands(tokens[end - 1].raw, tokens[end].raw), start: end - 1 });
+  }
+  return out;
+}
+
+/**
+ * Ligne qui commence par la quantité : « 2 Savon Omo 1kg 1 250 2 500 ».
+ * Quantité = premier nombre, total = dernier montant, prix unitaire = montant juste avant.
+ */
+function parseLeadingQtyRow(line: string): OCRItem | null {
+  if (!/^\d{1,4}\s+[A-Za-zÀ-ÿ(]/.test(line)) return null;
+  const tokens = digitTokens(line);
+  const qty = asInt(tokens[0]?.raw ?? '');
+  if (qty < 1 || tokens.length < 3) return null;
+
+  let best: { unitPrice: number; total: number; puStart: number; score: number } | null = null;
+  for (const total of amountsFromEnd(tokens, tokens.length - 1)) {
+    for (const pu of amountsFromEnd(tokens, total.start - 1)) {
+      if (pu.start < 1 || total.value < 50 || !nearlyEqual(qty * pu.value, total.value)) continue;
+      const score = (total.start < tokens.length - 1 ? 1 : 0) + (pu.start < total.start - 1 ? 1 : 0);
+      if (!best || score > best.score) best = { unitPrice: pu.value, total: total.value, puStart: pu.start, score };
+    }
+  }
+  if (!best) return null;
+
+  const name = stripLineNoise(line.slice(tokens[0].index + tokens[0].raw.length, tokens[best.puStart].index));
+  if (name.length < 2 || looksLikeDateLine(name)) return null;
+  const fixed = reconcileAmounts(qty, best.unitPrice, best.total);
+  return {
+    product_name: name.substring(0, 120),
+    quantity: String(qty),
+    unit: 'pièce',
+    unit_price: String(fixed.unitPrice),
+    total_price: String(fixed.total),
+  };
+}
+
 function parseTableRow(line: string): OCRItem | null {
   const cleaned = line.replace(/[|│¦]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/\btotal\b/i.test(cleaned) || (looksLikeDateLine(cleaned) && !parseTableAmounts(digitTokens(cleaned)))) return null;
   if (SKIP_ITEM.test(cleaned) && !parseTableAmounts(digitTokens(cleaned))) return null;
+
+  const leading = parseLeadingQtyRow(cleaned);
+  if (leading) return leading;
 
   const tokens = digitTokens(cleaned);
   const parsed = parseTableAmounts(tokens);
@@ -274,12 +371,13 @@ function parseTableRow(line: string): OCRItem | null {
   if (name.length < 2) return null;
   if (looksLikeDateLine(name)) return null;
 
+  const fixed = reconcileAmounts(parsed.qty, parsed.unitPrice, parsed.total);
   return {
     product_name: name.substring(0, 120),
     quantity: String(parsed.qty),
     unit: 'pièce',
-    unit_price: String(parsed.unitPrice),
-    total_price: String(parsed.total),
+    unit_price: String(fixed.unitPrice),
+    total_price: String(fixed.total),
   };
 }
 
@@ -393,13 +491,14 @@ function parseQtyPriceLine(line: string): OCRItem | null {
   const total = listedTotal > 0 ? listedTotal : unitPrice * qty;
   if (!qName || total < 50) return null;
   if (looksLikeDateLine(qName) || MONTH_NAME.test(qName)) return null;
+  const fixed = nearlyEqual(qty * unitPrice, total) ? reconcileAmounts(qty, unitPrice, total) : { unitPrice, total };
 
   return {
     product_name: qName.substring(0, 120),
     quantity: String(qty),
     unit: 'pièce',
-    unit_price: String(unitPrice),
-    total_price: String(total),
+    unit_price: String(fixed.unitPrice),
+    total_price: String(fixed.total),
   };
 }
 
@@ -509,7 +608,7 @@ function parseSimpleItem(line: string): OCRItem | null {
 export function parseReceiptText(rawText: string, avgConfidence = 0): OCRResult {
   const rawLines = String(rawText || '')
     .split(/\r?\n/)
-    .map((l) => l.trim())
+    .map((l) => normalizeOcrLine(l.trim()).trim())
     .filter((l) => l.length > 0);
 
   const lines = stitchOcrLines(rawLines);

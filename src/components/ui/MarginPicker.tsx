@@ -12,7 +12,7 @@ const CHOICES = [10, 15, 20, 25, 30];
 export function MarginPicker({
   value,
   onChange,
-  title = 'Combien voulez-vous gagner ?',
+  title,
 }: {
   value: string;
   onChange: (pct: string) => void;
@@ -28,7 +28,9 @@ export function MarginPicker({
 
   return (
     <div className="w-full">
-      <p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-[#64748B]">{title}</p>
+      {title ? (
+        <p className="mb-0.5 text-xs font-bold uppercase tracking-wider text-[#64748B]">{title}</p>
+      ) : null}
       <p className="mb-2 text-xs text-[#475569]">
         Un article que vous achetez <strong className="text-[#0F172A]">{formatFcfa(BASE)}</strong>, vous voulez le
         revendre à :

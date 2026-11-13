@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
-import { compressFile, isMobileDevice } from '../lib/ocr/image-utils';
+import {
+  canRunOcr,
+  compressFile,
+  isMobileDevice,
+  ocrMaxSide,
+  OCR_SOURCE_QUALITY,
+} from '../lib/ocr/image-utils';
 import { runOcrOnFile } from '../lib/ocr/tesseract-runner';
 import { parseReceiptText } from '../lib/ocr/ocr-parser';
 import { saveScannedInvoice } from '../lib/invoices';
@@ -61,7 +67,8 @@ export default function ScannerPage() {
     // Laisse le spinner s'afficher avant le décodage (sinon l'UI reste figée).
     await new Promise((r) => setTimeout(r, 50));
     try {
-      const optimized = await compressFile(file, mobile ? 480 : undefined);
+      // Assez de pixels pour que l'OCR lise les chiffres (la photo stockée sera réduite ensuite).
+      const optimized = await compressFile(file, ocrMaxSide(), OCR_SOURCE_QUALITY);
       showPreview(optimized);
     } catch {
       setToast('Photo trop lourde. Choisis une image plus légère dans la galerie.');
@@ -77,7 +84,7 @@ export default function ScannerPage() {
     setScreen('idle');
   };
 
-  /** Caméra dans l'app (basse résolution) — évite le plantage mémoire d'Android. */
+  /** Caméra dans l'app : HD (assez pour l'OCR) sans charger une photo 12 MP en mémoire. */
   const openCamera = async () => {
     setToast('');
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -91,8 +98,8 @@ export default function ScannerPage() {
         audio: false,
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: mobile ? 960 : 1280, max: mobile ? 1280 : 1920 },
-          height: { ideal: mobile ? 720 : 960, max: mobile ? 960 : 1440 },
+          width: { ideal: 1920, max: 2560 },
+          height: { ideal: 1080, max: 1920 },
         },
       });
       streamRef.current = stream;
@@ -111,7 +118,7 @@ export default function ScannerPage() {
     const canvas = canvasRef.current;
     if (!video?.videoWidth || !canvas) return;
 
-    const maxDim = mobile ? 640 : 1200;
+    const maxDim = ocrMaxSide();
     const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
@@ -131,7 +138,7 @@ export default function ScannerPage() {
         showPreview(new File([blob], 'facture.jpg', { type: 'image/jpeg' }));
       },
       'image/jpeg',
-      mobile ? 0.55 : 0.85,
+      OCR_SOURCE_QUALITY,
     );
   };
 
@@ -140,29 +147,24 @@ export default function ScannerPage() {
     setScreen('loading');
     setProgress('Préparation…');
 
-    let workingFile = capturedFile;
+    const source = capturedFile;
 
     try {
       revokePreview();
       setPreviewUrl(null);
 
-      workingFile = await compressFile(capturedFile, mobile ? 400 : undefined);
-      setCapturedFile(workingFile);
-
-      // Sur téléphone : on n'exécute PAS Tesseract (trop gourmand en RAM).
-      // La photo est enregistrée ; la saisie se fait sur l'écran de validation.
+      // L'OCR lit la photo haute résolution ; seule une version allégée est stockée.
       let ocr = parseReceiptText('', 0);
-      if (!mobile) {
-        setProgress('Lecture OCR…');
-        ocr = await runOcrOnFile(workingFile, (p) => {
-          setProgress(`Lecture OCR… ${Math.round(p * 100)}%`);
+      if (canRunOcr()) {
+        setProgress('Lecture de la facture…');
+        ocr = await runOcrOnFile(source, (p) => {
+          setProgress(`Lecture de la facture… ${Math.round(p * 100)} %`);
         });
-      } else {
-        setProgress('Enregistrement de la photo…');
       }
 
       setProgress('Enregistrement…');
-      const invoiceId = await saveScannedInvoice(user.id, workingFile, ocr);
+      const stored = await compressFile(source, mobile ? 1280 : 1600, 0.8);
+      const invoiceId = await saveScannedInvoice(user.id, stored, ocr);
       if (isOfflineInvoiceId(invoiceId)) {
         setProgress('Enregistré sur l’appareil…');
       }
@@ -170,7 +172,7 @@ export default function ScannerPage() {
         state: { queued: isOfflineInvoiceId(invoiceId) },
       });
     } catch (err) {
-      showPreview(workingFile);
+      showPreview(source);
       const msg = err instanceof Error ? err.message : 'Erreur d\'envoi';
       setToast(
         /memor|mémoir|memory|quota/i.test(msg)
@@ -208,9 +210,7 @@ export default function ScannerPage() {
           <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-cyan-400/40 bg-gradient-to-tr from-[#0F172A] via-[#1E3A8A] to-[#2563EB] text-4xl shadow-floating-cam">🧾</div>
           <h2 className="mb-2 text-xl font-bold">Numérisez votre facture</h2>
           <p className="mb-8 text-sm text-white/70">
-            {mobile
-              ? 'Caméra légère dans l\'appli — tu complètes les infos ensuite'
-              : 'Photo → OCR Tesseract.js dans le navigateur'}
+            Pour une bonne lecture : facture à plat, bien éclairée, sans ombre, et qui remplit l’écran.
           </p>
           <Button fullWidth onClick={openCamera} className="mb-3 max-w-xs">
             Ouvrir la caméra
@@ -270,7 +270,7 @@ export default function ScannerPage() {
               Changer
             </Button>
             <Button fullWidth onClick={upload}>
-              {mobile ? 'Enregistrer' : 'Analyser'}
+              {canRunOcr() ? 'Analyser' : 'Enregistrer'}
             </Button>
           </div>
         </div>

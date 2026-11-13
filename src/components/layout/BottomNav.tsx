@@ -6,7 +6,7 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 const labelClass = (isActive: boolean) =>
-  `mt-1 text-[10px] tracking-tight ${isActive ? 'font-bold' : 'font-medium'}`;
+  `mt-1 text-xs tracking-tight ${isActive ? 'font-bold' : 'font-medium'}`;
 
 export function BottomNav() {
   const location = useLocation();
@@ -34,7 +34,7 @@ export function BottomNav() {
               <svg className="h-5 w-5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className={labelClass(isActive)}>Journal</span>
+              <span className={labelClass(isActive)}>Reçus</span>
             </>
           )}
         </NavLink>
@@ -42,7 +42,7 @@ export function BottomNav() {
         <div className="flex flex-1 flex-col items-center justify-center">
           <NavLink
             to="/scanner"
-            aria-label="Scanner une facture"
+            aria-label="Scanner un reçu"
             className="-mt-7 flex h-[52px] w-[52px] items-center justify-center rounded-full border border-cyan-400/40 bg-gradient-to-tr from-[#0F172A] via-[#1E3A8A] to-[#2563EB] text-white shadow-floating-cam ring-4 ring-[#E2E8F0] transition-transform duration-150 active:scale-95"
           >
             <svg className="h-6 w-6 stroke-[1.9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -58,7 +58,7 @@ export function BottomNav() {
               <svg className="h-5 w-5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
-              <span className={labelClass(isActive)}>Analyses</span>
+              <span className={labelClass(isActive)}>Prix</span>
             </>
           )}
         </NavLink>

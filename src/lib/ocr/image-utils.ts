@@ -3,6 +3,26 @@ const DESKTOP_MAX = 1200;
 const MOBILE_QUALITY = 0.58;
 const DESKTOP_QUALITY = 0.82;
 
+/**
+ * Résolution de l'image envoyée à Tesseract (côté le plus long).
+ * Mesuré sur photos de tickets : à 480 px le texte est illisible, à 1200 px les zéros
+ * deviennent des lettres ; vers 1600-2000 px la lecture est fiable.
+ */
+export const OCR_MAX_MOBILE = 1600;
+export const OCR_MAX_DESKTOP = 2000;
+/** Qualité JPEG de la photo source gardée pour l'OCR (les artefacts JPEG gênent la lecture). */
+export const OCR_SOURCE_QUALITY = 0.9;
+
+export function ocrMaxSide(): number {
+  return isMobileDevice() ? OCR_MAX_MOBILE : OCR_MAX_DESKTOP;
+}
+
+/** Téléphone très limité en mémoire (≤ 1 Go) : on évite Tesseract, saisie manuelle. */
+export function canRunOcr(): boolean {
+  const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  return !(isMobileDevice() && typeof mem === 'number' && mem <= 1);
+}
+
 export function isMobileDevice(): boolean {
   return (
     /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry/i.test(navigator.userAgent) ||
@@ -100,10 +120,61 @@ function compressWithImageElement(file: File, maxPixels: number, quality: number
   });
 }
 
-export async function compressFile(file: File, maxPixels?: number): Promise<File> {
+/**
+ * Prépare l'image pour Tesseract : redimensionnement vers `maxSide` (agrandit aussi les
+ * petites photos, jusqu'à ×2), niveaux de gris, étirement du contraste (percentiles 1-99 %).
+ * Pas de seuillage binaire : testé, il casse les zéros fins des tickets thermiques.
+ */
+export async function prepareOcrImage(file: Blob, maxSide = ocrMaxSide()): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const longSide = Math.max(bitmap.width, bitmap.height);
+  const scale = Math.min(maxSide / longSide, 2);
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+  if (!ctx) {
+    bitmap.close();
+    throw new Error('Canvas indisponible');
+  }
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+
+  const img = ctx.getImageData(0, 0, w, h);
+  const px = img.data;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < px.length; i += 4) {
+    const g = (px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8;
+    px[i] = g;
+    hist[g]++;
+  }
+  const n = w * h;
+  let lo = 0;
+  let hi = 255;
+  for (let acc = 0; lo < 255 && (acc += hist[lo]) < n * 0.01; lo++);
+  for (let acc = 0; hi > 0 && (acc += hist[hi]) < n * 0.01; hi--);
+  const range = Math.max(hi - lo, 1);
+  for (let i = 0; i < px.length; i += 4) {
+    const v = Math.min(255, Math.max(0, ((px[i] - lo) * 255) / range));
+    px[i] = px[i + 1] = px[i + 2] = v;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  canvas.width = 0;
+  canvas.height = 0;
+  if (!blob) throw new Error('Préparation de l’image impossible');
+  return blob;
+}
+
+export async function compressFile(file: File, maxPixels?: number, quality?: number): Promise<File> {
   const mobile = isMobileDevice();
   maxPixels = maxPixels ?? (mobile ? MOBILE_MAX : DESKTOP_MAX);
-  const quality = mobile ? MOBILE_QUALITY : DESKTOP_QUALITY;
+  quality = quality ?? (mobile ? MOBILE_QUALITY : DESKTOP_QUALITY);
 
   // Toujours recompresser sur mobile : une photo caméra reste souvent trop grande en pixels.
   if (!mobile && file.size < 120_000 && file.type === 'image/jpeg') {

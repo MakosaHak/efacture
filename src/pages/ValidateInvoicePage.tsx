@@ -131,7 +131,7 @@ export default function ValidateInvoicePage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Valider la facture" backTo="/scanner" />
+      <AppHeader title="Vérifier le reçu" backTo="/scanner" />
 
       {(photoUrl || invoice.photo_path) && (
         <div className="mb-4 overflow-hidden rounded-2xl">

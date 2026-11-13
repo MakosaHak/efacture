@@ -142,7 +142,7 @@ export default function ProfilePage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Profil" backTo="/" />
+      <AppHeader title="Compte" backTo="/" />
 
       <div className="mb-6 text-center">
         <div className="relative mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/70 bg-gradient-to-br from-[#E2E8F0] to-[#CBD5E1] font-editorial text-3xl font-bold italic text-[#1E3A8A] shadow-neo-card">

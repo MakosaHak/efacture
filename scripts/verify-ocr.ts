@@ -3,7 +3,7 @@
  * formats de factures — pas un modèle entraîné sur un seul fournisseur.
  */
 import assert from 'node:assert/strict';
-import { parseFcfa, parseReceiptText } from '../src/lib/ocr/ocr-parser.ts';
+import { normalizeOcrLine, parseFcfa, parseReceiptText, reconcileAmounts } from '../src/lib/ocr/ocr-parser.ts';
 
 assert.equal(parseFcfa('360.250'), 360250);
 assert.equal(parseFcfa('13 500'), 13500);
@@ -132,4 +132,71 @@ assert.equal(
 );
 assert.equal(splitTable.total_amount, '360250');
 
-console.log('verify-ocr: OK (ticket, pharmacie, caisse, tableau, ETS, service/TVA, lignes coupées)');
+// --- Sorties brutes réelles de Tesseract.js (photos de tickets, 2000 px, PSM 6) ---
+assert.equal(normalizeOcrLine('Huile vegetale 51 4 x 8 500 34 goo'), 'Huile vegetale 51 4 x 8 500 34 000');
+assert.equal(normalizeOcrLine('TOTAL 73 75e FCFA'), 'TOTAL 73 750 FCFA');
+assert.equal(normalizeOcrLine('Sac de ciment 10 S 599 55 000'), 'Sac de ciment 10 5 599 55 000');
+assert.equal(normalizeOcrLine('Lome, le ©3 fevrier 2026'), 'Lome, le 03 fevrier 2026');
+assert.equal(normalizeOcrLine('Marche Adawlato - Lome'), 'Marche Adawlato - Lome');
+assert.deepEqual(reconcileAmounts(10, 5509, 55000), { unitPrice: 5500, total: 55000 });
+assert.deepEqual(reconcileAmounts(20, 3200, 64009), { unitPrice: 3200, total: 64000 });
+assert.deepEqual(reconcileAmounts(2, 12500, 25000), { unitPrice: 12500, total: 25000 });
+
+const photoTicket = parseReceiptText(
+  [
+    'GROSSISTE ADAWLATO',
+    'Marche Adawlato - Lome',
+    'Date : 12/03/2026',
+    'Riz parfume 25kg 2 x 12 500 25 000',
+    'Huile vegetale 51 4 x 8 500 34 goo',
+    'Sucre 1kg 10 x 650  6 500',
+    'Lait Nido 400g 3 x 2 750 8 250',
+    'TOTAL 73 75e FCFA',
+    'Merci de votre visite',
+  ].join('\n'),
+);
+assert.equal(photoTicket.total_amount, '73750');
+assert.equal(photoTicket.items.length, 4, photoTicket.items.map((i) => i.product_name).join(' | '));
+assert.equal(photoTicket.items[1].total_price, '34000');
+
+const photoTableau = parseReceiptText(
+  [
+    'ETS AMEGAN & FILS',
+    'Lome, le ©3 fevrier 2026',
+    'FACTURE N 2026/045',
+    'Designation  Qte P.U  Montant',
+    'Sac de ciment 5okg 10 5 509  55 000',
+    'Fer a beton 10mm  20 3 200 64 009',
+    'pointes 70mm 5 1 500 7 500',
+    'peinture blanche 20. 2 18 000 36 200',
+    'TOTAL GENERAL  162 500',
+  ].join('\n'),
+);
+assert.equal(photoTableau.invoice_date, '2026-02-03');
+assert.equal(photoTableau.items.length, 4);
+assert.deepEqual(
+  photoTableau.items.map((i) => [i.quantity, i.unit_price, i.total_price]),
+  [['10', '5500', '55000'], ['20', '3200', '64000'], ['5', '1500', '7500'], ['2', '18000', '36000']],
+);
+assert.equal(photoTableau.items.reduce((s, i) => s + Number(i.total_price), 0), 162500);
+
+const photoQteDevant = parseReceiptText(
+  [
+    'BOUTIQUE TOKOIN',
+    '21/09/2026',
+    '2 Savon Omo 1kg 1 250  2 500',
+    '6 Tomate concentree 300  1 800',
+    '1 Bidon huile 25L 24 006 24 000',
+    'TOTAL A PAYER 28 300 F',
+  ].join('\n'),
+);
+assert.deepEqual(
+  photoQteDevant.items.map((i) => [i.product_name, i.quantity, i.unit_price, i.total_price]),
+  [
+    ['Savon Omo 1kg', '2', '1250', '2500'],
+    ['Tomate concentree', '6', '300', '1800'],
+    ['Bidon huile 25L', '1', '24000', '24000'],
+  ],
+);
+
+console.log('verify-ocr: OK (ticket, pharmacie, caisse, tableau, ETS, service/TVA, lignes coupées, photos réelles)');

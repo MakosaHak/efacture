@@ -4,8 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
-import { MarginPicker } from '../components/ui/MarginPicker';
-import { formatFcfa } from '../lib/invoices';
 import { DEFAULT_MARGIN } from '../lib/pricing';
 
 export default function RegisterPage() {
@@ -16,7 +14,6 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [quartier, setQuartier] = useState('');
-  const [marge, setMarge] = useState(String(DEFAULT_MARGIN * 100));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -29,11 +26,6 @@ export default function RegisterPage() {
       setError('Les mots de passe ne correspondent pas.');
       return;
     }
-    const margePct = marge.trim() === '' ? DEFAULT_MARGIN * 100 : Number(marge);
-    if (!Number.isFinite(margePct) || margePct < 0 || margePct > 100) {
-      setError('Marge invalide (entre 0 et 100 %).');
-      return;
-    }
     setLoading(true);
     try {
       await signUpWithPhonePassword(phone, password, {
@@ -41,7 +33,7 @@ export default function RegisterPage() {
         telephone: phone,
         adresse: '',
         quartier: quartier.trim(),
-        default_margin: margePct / 100,
+        default_margin: DEFAULT_MARGIN,
       });
       navigate('/');
     } catch (err) {
@@ -83,10 +75,6 @@ export default function RegisterPage() {
               value={quartier}
               onChange={(e) => setQuartier(e.target.value)}
             />
-            <MarginPicker value={marge} onChange={setMarge} />
-            <p className="-mt-2 text-[10px] text-[#94A3B8]">
-              Pas sûr ? Laissez {formatFcfa(1150)} : vous pourrez changer plus tard dans « Compte ».
-            </p>
             <Input
               label="Mot de passe"
               type="password"

@@ -73,7 +73,7 @@ export default function InvoiceDetailPage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Détail facture" backTo="/factures" />
+      <AppHeader title="Reçu" backTo="/factures" />
 
       {photoUrl && (
         <img src={photoUrl} alt="Facture" className="mb-4 max-h-64 w-full rounded-2xl object-cover" />

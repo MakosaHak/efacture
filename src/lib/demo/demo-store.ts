@@ -139,6 +139,8 @@ function buildSeedInvoices(): Invoice[] {
 }
 
 const photoUrls = new Map<string, string>();
+/** Photos scannées en mode démo : on garde le Blob, pas l'URL — chaque lecteur crée la sienne. */
+const photoBlobs = new Map<string, Blob>();
 
 export function initDemoPhotos(): void {
   const labels: Record<string, string> = {
@@ -228,11 +230,15 @@ export function resetDemoStore(): void {
   defaultMargin = DEFAULT_MARGIN;
   productPrices = buildSeedProductPrices(invoices);
   photoUrls.clear();
+  photoBlobs.clear();
   initDemoPhotos();
 }
 
 export function demoGetPhotoUrl(path: string): string | null {
   if (!path) return null;
+  const blob = photoBlobs.get(path);
+  // URL fraîche à chaque appel : les composants révoquent leur propre URL au démontage.
+  if (blob) return URL.createObjectURL(blob);
   return photoUrls.get(path) ?? demoPlaceholderPhoto('Facture');
 }
 
@@ -254,7 +260,7 @@ export function demoFetchInvoice(id: string): Invoice | null {
 export function demoSaveScannedInvoice(_userId: string, file: File, ocr: OCRResult): string {
   const invoiceId = `demo-inv-${Date.now()}`;
   const photoPath = `demo:${invoiceId}`;
-  photoUrls.set(photoPath, URL.createObjectURL(file));
+  photoBlobs.set(photoPath, file);
 
   const items: InvoiceItem[] = ocr.items.map((item, idx) => ({
     id: `new-${idx}`,
@@ -327,8 +333,7 @@ export function demoRejectInvoice(invoiceId: string): void {
 
 export function demoDeleteInvoice(invoiceId: string, photoPath: string): void {
   if (photoPath?.startsWith('demo:')) {
-    const url = photoUrls.get(photoPath);
-    if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+    photoBlobs.delete(photoPath);
     photoUrls.delete(photoPath);
   }
   invoices = invoices.filter((i) => i.id !== invoiceId);

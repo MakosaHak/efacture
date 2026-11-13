@@ -40,7 +40,7 @@ export default function PriceComparePage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Analyses" backTo="/" />
+      <AppHeader title="Prix" backTo="/" />
 
       <Card className="mb-4 space-y-3">
         <label className="block text-xs font-semibold text-[#64748B]">Produit</label>

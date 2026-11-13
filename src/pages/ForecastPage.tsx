@@ -46,7 +46,7 @@ export default function ForecastPage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Prévisions" backTo="/stats/prix" />
+      <AppHeader title="Mois prochain" backTo="/" />
 
       <p className="mb-4 text-xs leading-relaxed text-[#64748B]">
         Informatique décisionnelle : moyenne des 3 derniers mois, ajustée du taux d’inflation moyen détecté
