@@ -1,10 +1,10 @@
 # efacture
 
-**Scanner & Gérer Vos Achats au Togo**
+**Scanner et gérer vos achats**
 
-Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assivito, etc.) : photographier une facture, lire le texte automatiquement (OCR), valider les données et suivre dépenses, prix et fournisseurs.
+Application web progressive (PWA) pour les commerçants de Lomé : photographier un reçu, lire le texte automatiquement (OCR dans le navigateur), vérifier les montants, puis suivre dépenses, prix d'achat, fournisseurs et prix de vente conseillés.
 
-> Budget cible : **0 €** — React, Supabase (gratuit), Tesseract.js (OCR dans le navigateur), Netlify (hébergement).
+> **Tout est local.** Comptes, reçus, photos et prix sont enregistrés dans le navigateur (IndexedDB). Aucun serveur, aucune base de données externe, aucune clé à configurer. L'application fonctionne sans réseau une fois installée.
 
 ---
 
@@ -12,20 +12,17 @@ Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assi
 
 - [Fonctionnalités](#fonctionnalités)
 - [Stack technique](#stack-technique)
-- [Architecture](#architecture)
+- [Stockage local](#stockage-local)
 - [Pages et navigation](#pages-et-navigation)
 - [Authentification](#authentification)
-- [Parcours scan d'une facture](#parcours-scan-dune-facture)
+- [Parcours scan d'un reçu](#parcours-scan-dun-reçu)
 - [Prix de vente suggérés](#prix-de-vente-suggérés)
-- [Mode démo vs production](#mode-démo-vs-production)
+- [Compte de démonstration](#compte-de-démonstration)
 - [PWA (installation)](#pwa-installation)
 - [Installation locale](#installation-locale)
-- [Configuration Supabase](#configuration-supabase)
-- [Déploiement Netlify](#déploiement-netlify)
-- [Variables d'environnement](#variables-denvironnement)
+- [Déploiement](#déploiement)
 - [Structure du projet](#structure-du-projet)
-- [Sécurité](#sécurité)
-- [Ce qui reste à faire](#ce-qui-reste-à-faire)
+- [Limites et pistes](#limites-et-pistes)
 
 ---
 
@@ -33,117 +30,87 @@ Application web progressive (PWA) pour les commerçants de Lomé (Adawlato, Assi
 
 | Fonctionnalité | Description |
 |----------------|-------------|
-| **Inscription / Connexion** | Téléphone togolais (+228, 8 chiffres) + mot de passe |
-| **Scanner** | Caméra ou import galerie → compression image → OCR |
-| **Validation** | Correction fournisseur, date, lignes produits, montant |
-| **Historique** | Liste des factures, recherche, filtres par statut |
-| **Dashboard** | KPI du mois (dépenses, factures, inflation estimée) |
-| **Stats prix** | Évolution des prix, alertes hausse |
-| **Stats fournisseurs** | Dépenses par grossiste / marché |
-| **Prix de vente suggérés** | Après validation, un prix de vente proposé par produit ; marge apprise par produit |
-| **Profil** | Infos commerce éditables, marge habituelle, export PDF/CSV, installation PWA |
-| **PWA** | Installable sur mobile et PC, cache offline, page de garde |
-| **File hors-ligne** | Scan sans réseau → IndexedDB → envoi auto à la reconnexion |
+| **Inscription / Connexion** | Téléphone togolais (+228, 8 chiffres) + mot de passe, stockés sur l'appareil (mot de passe haché) |
+| **Scanner** | Caméra ou import galerie, compression de l'image, OCR Tesseract.js |
+| **Vérification** | Correction du fournisseur, de la date, des articles, du montant et du transport |
+| **Reçus** | Liste, recherche, filtres par statut, photo conservée en local |
+| **Tableau de bord** | Dépenses du jour, de la semaine, du mois ; derniers achats ; alertes de hausse |
+| **Prix de vente** | Suggestion par article d'après le prix d'achat et la marge apprise |
+| **Analyses** | Évolution des prix, budget du mois prochain, comparaison des fournisseurs |
+| **Export** | PDF et CSV mensuels des reçus validés |
+| **PWA** | Installable sur Android, iOS et ordinateur ; fonctionne hors ligne |
 
 ---
 
 ## Stack technique
 
-| Couche | Technologie |
-|--------|-------------|
-| Frontend | React 18 + Vite 6 + TypeScript |
-| Styles | Tailwind CSS 4 |
-| Routing | React Router 6 |
-| Backend | Supabase (Auth, PostgreSQL, Storage) |
-| OCR | Tesseract.js (100 % navigateur, gratuit) |
-| Graphiques | Recharts |
-| PWA | vite-plugin-pwa + Workbox |
-| Déploiement | Netlify |
+- **React 18 + TypeScript + Vite 6**
+- **Tailwind CSS v4** (design sobre : une couleur d'accent, surfaces blanches, bordures fines)
+- **lucide-react** pour les icônes
+- **IndexedDB** (API native, sans dépendance) pour toutes les données
+- **Tesseract.js** pour l'OCR dans le navigateur
+- **Recharts** pour les courbes
+- **vite-plugin-pwa** (service worker, manifeste, installation)
 
 ---
 
-## Architecture
+## Stockage local
 
-```
-┌─────────────────────────────────────────┐
-│  Navigateur (PWA React)                  │
-│  Pages → OCR (Tesseract.js) → Supabase  │
-└──────────────────┬──────────────────────┘
-                   │ HTTPS
-┌──────────────────▼──────────────────────┐
-│  Netlify (fichiers statiques + SPA)      │
-└──────────────────┬──────────────────────┘
-                   │
-┌──────────────────▼──────────────────────┐
-│  Supabase                                │
-│  Auth │ PostgreSQL │ Storage (photos)    │
-└─────────────────────────────────────────┘
-```
+Base IndexedDB `efacture`, cinq magasins :
+
+| Magasin | Contenu |
+|---------|---------|
+| `users` | Comptes : téléphone, mot de passe haché (SHA-256 salé), profil du commerce |
+| `invoices` | Reçus avec leurs lignes d'articles (objet complet), indexés par propriétaire |
+| `photos` | Photos des reçus sous forme de `Blob` |
+| `product_prices` | Prix de vente suggérés / confirmés et marge apprise par produit |
+| `settings` | Réglages par compte (marge par défaut) |
+
+Chaque donnée est liée à un `owner_id` : plusieurs comptes peuvent coexister sur le même appareil sans voir les données des autres. Au démarrage, l'application demande au navigateur un **stockage persistant** pour éviter toute purge automatique.
+
+Code : `src/lib/db/local-db.ts` (ouverture, transactions) et `src/lib/db/repo.ts` (accès par entité).
 
 ---
 
 ## Pages et navigation
 
-| Route | Page | Accès |
-|-------|------|-------|
-| `/auth/connexion` | Connexion | Public |
-| `/auth/inscription` | Inscription | Public |
-| `/` | Dashboard (KPI) | Connecté |
-| `/scanner` | Scanner facture | Connecté |
-| `/factures` | Historique | Connecté |
-| `/factures/:id` | Détail facture | Connecté |
-| `/factures/:id/valider` | Validation OCR | Connecté |
-| `/stats/prix` | Comparateur de prix | Connecté |
-| `/stats/fournisseurs` | Dépenses fournisseurs | Connecté |
-| `/prix-de-vente` | Prix de vente suggérés à confirmer | Connecté |
-| `/profil` | Profil + install PWA | Connecté |
+| Route | Page |
+|-------|------|
+| `/auth/connexion`, `/auth/inscription` | Connexion, création de compte |
+| `/` | Tableau de bord |
+| `/scanner` | Prise de photo / import, OCR |
+| `/factures` | Liste des reçus |
+| `/factures/:id` | Détail d'un reçu |
+| `/factures/:id/valider` | Vérification avant validation |
+| `/prix-de-vente` | Prix de vente à confirmer et prix confirmés |
+| `/stats/prix` | Évolution des prix, dépenses par fournisseur |
+| `/stats/previsions` | Budget du mois prochain |
+| `/stats/optimisation` | Conseil d'achat |
+| `/stats/fournisseurs` | Fournisseurs |
+| `/profil` | Compte, marge, export, mot de passe, installation |
 
-Navigation principale : barre du bas (Accueil, Scanner, Factures, Stats, Profil).
+Navigation basse : Accueil, Reçus, **Scanner** (bouton central), Prix, Compte.
 
 ---
 
 ## Authentification
 
-### Téléphone togolais
+- Identifiant : numéro togolais à 8 chiffres (commence par 7 ou 9), saisi avec ou sans `+228`.
+- Mot de passe : 6 caractères minimum, haché avec un sel aléatoire (WebCrypto SHA-256) avant stockage.
+- Session mémorisée dans `localStorage` : l'application installée reste connectée.
+- Changement de mot de passe depuis la page Compte.
 
-- Format attendu : **8 chiffres** commençant par **7** ou **9** (ex. `90 12 34 56`)
-- Indicatif : **+228**
-
-### Connexion
-
-**Mot de passe** — numéro togolais + mot de passe. Pas de code SMS.
-
-### Email interne Supabase
-
-L'utilisateur ne voit que son numéro. Côté Supabase Auth, l'email est :
-
-`90123456@phone.e-facture.app`
-
-(configurable dans `src/lib/auth/phone-auth.ts`)
-
-### Sans Supabase
-
-Si les variables d'environnement ne sont pas configurées :
-
-- Inscription locale (données dans le navigateur)
-- Bouton **« Mode démo »** avec factures fictives
+Code : `src/lib/auth/local-auth.ts`, `src/context/AuthContext.tsx`.
 
 ---
 
-## Parcours scan d'une facture
+## Parcours scan d'un reçu
 
-```
-1. Ouvrir /scanner
-2. Photo (caméra) ou fichier (galerie)
-3. compressFile() → JPEG optimisé
-4. Tesseract.js → texte brut
-5. ocr-parser.ts → fournisseur, date, total, lignes produits
-6. Upload photo → Supabase Storage (bucket invoice-photos)
-7. Insertion → tables invoices + invoice_items
-8. Redirection → /factures/:id/valider
-9. L'utilisateur corrige → statut "validated"
-10. Dashboard et stats recalculés
-```
+1. **Photo** : caméra arrière (HD) ou import depuis la galerie, puis compression.
+2. **OCR** : Tesseract.js lit l'image en français ; `ocr-parser.ts` extrait fournisseur, date, total et lignes.
+3. **Enregistrement** : la photo (version allégée) et le reçu sont écrits dans IndexedDB, statut *À vérifier*.
+4. **Vérification** : l'utilisateur corrige les champs ; un écart entre le total lu et la somme des articles est signalé.
+5. **Validation** : statut *Validé*, le reçu entre dans les statistiques et génère des suggestions de prix de vente.
 
 ---
 
@@ -151,68 +118,33 @@ Si les variables d'environnement ne sont pas configurées :
 
 ### Principe
 
-Après la validation d'une facture, l'application prépare en arrière-plan un prix de vente pour
-chaque produit acheté. Rien n'est ajouté à l'écran de scan ni à l'écran de validation : le
-commerçant traite les suggestions quand il veut, dans l'écran **Prix de vente** (`/prix-de-vente`),
-signalé par un badge « N prix de vente à confirmer » sur le tableau de bord.
+Pour chaque article d'un reçu validé : `prix de vente = prix d'achat × (1 + marge)`, arrondi au multiple de 25 FCFA. La marge utilisée est la marge apprise du produit, sinon la marge habituelle du commerce (choisie dans Compte).
 
-Ce n'est **pas** un modèle de machine learning : c'est une **suggestion adaptative à moyenne
-mobile**. Aucune API externe, aucune dépendance ML. Code : `src/lib/pricing.ts` (calcul pur) et
-`src/lib/productPrices.ts` (lecture/écriture démo ou Supabase).
+### Apprentissage
 
-### Formules
+À chaque confirmation, la marge du produit devient `0,7 × ancienne + 0,3 × marge réellement choisie`. Un prix de vente inférieur au prix d'achat est accepté mais n'entraîne pas d'apprentissage.
 
-```
-prix suggéré   = arrondi_25( prix_achat_unitaire × (1 + marge) )
-marge utilisée = marge apprise du produit, sinon marge habituelle du commerçant (15 % par défaut)
-marge réelle   = prix_final / prix_achat − 1
-nouvelle marge = 0,7 × ancienne marge + 0,3 × marge réelle      (bornée entre 0 % et 100 %)
-```
+### Mise en avant
 
-- `arrondi_25` : multiple de 25 FCFA le plus proche (1 237 → 1 225).
-- Pas d'apprentissage si le prix final est inférieur au prix d'achat (autorisé, mais signalé).
-- « Tout accepter » vaut une confirmation par ligne au prix suggéré.
-- Plusieurs lignes du même produit sur une facture : prix unitaire moyen pondéré par la quantité.
-- Produits rapprochés par un nom normalisé (« Riz parfumé 25kg » = « riz parfume 25 kg »).
-- Section « À vérifier » : produits nouveaux, ou prix d'achat en hausse de plus de 10 %.
+Un produit nouveau, ou dont le prix d'achat a augmenté de plus de 10 %, apparaît dans **À vérifier**.
 
-### Limites
-
-- Le prix d'achat utilisé est le prix unitaire de la facture, **sans** les frais de transport.
-- Le prix suggéré dépend uniquement de l'historique du commerçant : il ignore la concurrence,
-  la demande, les pertes et la vente au détail (sac acheté, revendu au kg).
-- Le rapprochement des produits repose sur le libellé : deux libellés différents pour le même
-  article donnent deux produits distincts.
-- La fonctionnalité **n'a pas été évaluée** auprès de commerçants réels ; aucun chiffre de
-  précision ou d'impact n'est revendiqué.
-- Hors ligne : une facture validée sans réseau ne génère ses suggestions qu'après synchronisation.
-
-> **Supabase** : exécuter `supabase/migrations/005_product_prices.sql` (colonne
-> `profiles.default_margin` + table `product_prices` avec RLS). Sans cette migration, la
-> validation fonctionne mais aucune suggestion n'est enregistrée.
+Code : `src/lib/pricing.ts` (calculs purs), `src/lib/productPrices.ts` (persistance).
 
 ---
 
-## Mode démo vs production
+## Compte de démonstration
 
-| | Mode démo | Production (Supabase) |
-|---|-----------|---------------------|
-| Données | Fictives, localStorage | PostgreSQL cloud |
-| Photos | Placeholders SVG | Storage Supabase |
-| Comptes | Locaux / session | Auth Supabase |
-| Persistance | Navigateur uniquement | Multi-appareils |
+Sur l'écran de connexion, **Découvrir avec des données d'exemple** ouvre un compte de démonstration (téléphone `90 00 00 00`, mot de passe `demo`) et insère une fois des reçus d'exemple sur trois mois. Les modifications faites ensuite sont conservées comme pour n'importe quel compte.
 
 ---
 
 ## PWA (installation)
 
-- **Manifest** : nom `efacture`, thème vert `#006d41`
-- **Service Worker** : cache des assets, fonts, requêtes Supabase (NetworkFirst)
-- **File hors-ligne** : photos et saisie dans IndexedDB (`efacture-offline`) ; `OfflineSync` envoie dès que `online` revient. Les KPI cloud n’incluent pas les scans non synchronisés.
-- **Page de garde** : splash au premier lancement
-- **Installation** : bannière sur connexion + profil ; iOS via « Sur l'écran d'accueil »
+- Android / Chrome : bannière « Installer efacture » ou menu du navigateur.
+- iPhone : Safari, **Partager**, puis **Sur l'écran d'accueil**.
+- Ordinateur : icône d'installation dans la barre d'adresse.
 
-> La caméra mobile nécessite **HTTPS** (Netlify en production).
+La caméra nécessite **HTTPS** (ou `localhost`). Le service worker met en cache l'application pour un usage hors ligne.
 
 ---
 
@@ -220,153 +152,63 @@ nouvelle marge = 0,7 × ancienne marge + 0,3 × marge réelle      (bornée entr
 
 ### Prérequis
 
-- Node.js 20 LTS
-- npm
+Node.js 20 ou plus récent.
 
 ### Commandes
 
 ```bash
-git clone https://github.com/Samuella01/efacture.git
-cd efacture
 npm install
-copy .env.example .env.local
-# Remplir VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY
-npm run dev
+npm run dev        # http://localhost:5173
+npm run build      # dossier dist/
+npm run preview    # prévisualiser le build
+npm run test:rules # vérification des règles de prix et de l'OCR
 ```
 
-Ouvrir [http://localhost:5173](http://localhost:5173)
+### Accès depuis le téléphone (même Wi-Fi)
 
-### Accès depuis le téléphone (même Wi‑Fi)
-
-Le serveur Vite est configuré avec `host: true`. Au lancement de `npm run dev`, utilisez l'URL **Network** affichée (ex. `http://192.168.x.x:5173`).
-
-> Pour la caméra sur mobile, déployez sur Netlify (HTTPS).
-
-### Build production
-
-```bash
-npm run build
-npm run preview
-```
+Le serveur écoute sur toutes les interfaces : ouvrez l'adresse « Network » affichée au lancement. Pour la caméra en HTTPS local, un certificat mkcert dans `~/.vite-plugin-mkcert` est détecté automatiquement.
 
 ---
 
-## Configuration Supabase
+## Déploiement
 
-1. Créer un projet sur [supabase.com](https://supabase.com)
-2. Exécuter dans le SQL Editor, dans l'ordre : `001_initial.sql`, `002_transport_fee.sql`,
-   `004_final_amount_supplier_link.sql`, `005_product_prices.sql` (dossier `supabase/migrations/`)
-3. Créer le bucket Storage **`invoice-photos`** (privé)
-4. Exécuter les policies Storage (fin du fichier SQL, section commentée)
-5. **Authentication → Email** : désactiver **Confirm email**
-6. Copier URL et clé **anon** dans `.env.local`
-
-### Tables
-
-- `profiles` — commerce, téléphone, quartier
-- `suppliers` — fournisseurs
-- `invoices` — factures scannées
-- `invoice_items` — lignes produits
-- `product_prices` — prix de vente suggérés / confirmés et marge apprise par produit
-
-Row Level Security (RLS) : chaque utilisateur ne voit que ses données.
-
----
-
-## Déploiement Netlify
-
-1. Connecter le repo GitHub à Netlify
-2. Paramètres :
-   - **Build command** : `npm run build`
-   - **Publish directory** : `dist`
-3. Variables d'environnement (Site settings → Environment variables) :
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-4. Supabase → Authentication → URL Configuration :
-   - Site URL : `https://votre-site.netlify.app`
-   - Redirect URLs : `https://votre-site.netlify.app/**`
-
-Le fichier `netlify.toml` inclut déjà la redirection SPA.
-
----
-
-## Variables d'environnement
-
-| Variable | Description | Où la trouver |
-|----------|-------------|---------------|
-| `VITE_SUPABASE_URL` | URL du projet Supabase | Supabase → Settings → API |
-| `VITE_SUPABASE_ANON_KEY` | Clé publique anon | Supabase → Settings → API |
-
-### Fichiers
-
-| Fichier | Commit Git ? | Rôle |
-|---------|--------------|------|
-| `.env.example` | Oui | Modèle sans vraies clés |
-| `.env.local` | **Non** | Vos clés locales |
-| Variables Netlify | Dashboard | Clés en production |
+Hébergement statique (Netlify, Vercel, GitHub Pages…). Le fichier `netlify.toml` et `public/_redirects` renvoient toutes les routes vers `index.html`. Aucune variable d'environnement n'est nécessaire.
 
 ---
 
 ## Structure du projet
 
 ```
-efacture/
-├── public/
-│   ├── icons/          # Icônes PWA + logo
-│   └── _redirects      # Netlify SPA
-├── src/
-│   ├── pages/          # Écrans (Dashboard, Scanner, …)
-│   ├── components/     # UI, layout, PWA, factures
-│   ├── context/        # AuthContext
-│   ├── hooks/          # usePwaInstall
-│   ├── lib/
-│   │   ├── auth/       # Téléphone, users locaux
-│   │   ├── demo/       # Mode démo
-│   │   ├── ocr/        # Tesseract, parser, compression
-│   │   ├── offline/    # File IndexedDB des scans hors réseau
-│   │   ├── invoices.ts # CRUD + analytics + flush file hors-ligne
-│   │   └── supabase.ts
-│   └── types/
-├── supabase/migrations/  # Schéma SQL
-├── vite.config.ts      # Vite + PWA
-├── netlify.toml
-├── .env.example
-└── README.md
+src/
+  components/
+    invoices/      vignette et badge de statut
+    layout/        coque de l'app, en-tête, navigation basse
+    pwa/           bannière d'installation, mise à jour, écran de démarrage
+    ui/            Button, Card, Input, Select, Notice, Badge, EmptyState…
+  context/         AuthContext (session locale)
+  lib/
+    auth/          authentification locale, format téléphone
+    db/            IndexedDB (local-db.ts) et accès par entité (repo.ts)
+    demo/          jeu de données d'exemple
+    ocr/           Tesseract.js, prétraitement image, analyse du texte
+    invoices.ts    CRUD reçus + indicateurs, prévisions, optimisation
+    productPrices.ts prix de vente suggérés
+    pricing.ts     formules (pures)
+    export-pdf.ts  export PDF / CSV
+  pages/           une page par route
+  types/           types TypeScript
 ```
 
 ---
 
-## Sécurité
+## Limites et pistes
 
-- **Ne jamais** commiter `.env.local` ni de clés API dans le code
-- La clé **anon** Supabase est publique (côté client) ; la sécurité repose sur **RLS** PostgreSQL et les policies Storage
-- Ne pas utiliser la clé **service_role** dans le frontend
-- Mode local sans Supabase : mots de passe en clair dans le navigateur — **démo uniquement**
-
----
-
-## Ce qui reste à faire
-
-- [x] Configurer Supabase + `.env.local`
-- [x] Déployer sur Netlify (HTTPS)
-- [ ] Tester scan caméra sur téléphone (HTTPS)
-- [ ] Vérifier bucket `invoice-photos` (privé) + policies Storage
-- [ ] Désactiver la confirmation d'email (Auth) si besoin
-- [ ] Déclarer l'URL Netlify dans Supabase (Site URL / Redirect URLs)
-- [ ] Mot de passe oublié
-- [x] Édition du profil
-- [x] Export PDF / CSV mensuel
-- [x] File d'attente offline pour scans sans réseau
-- [ ] Tests auprès de commerçants
+- Les données sont liées à l'appareil et au navigateur : pensez aux exports mensuels. Une sauvegarde / restauration complète (fichier) serait une suite naturelle.
+- Pas de récupération de mot de passe (aucun serveur) : un mot de passe oublié impose de recréer un compte.
+- L'OCR dépend de la qualité de la photo : reçu à plat, bien éclairé, cadré en entier.
 
 ---
 
 ## Licence
 
-Projet académique / TPME Lomé — usage libre pour apprentissage et soutenance.
-
----
-
-## Auteur
-
-[Samuella01](https://github.com/Samuella01) — efacture
+Projet académique / TPME Lomé, usage libre pour l'apprentissage et la soutenance.

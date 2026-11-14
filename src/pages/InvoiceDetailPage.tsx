@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Trash2 } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
-import { Card } from '../components/ui/Card';
+import { Card, SectionTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+import { Notice, Spinner } from '../components/ui/Feedback';
 import { InvoiceStatusBadge } from '../components/invoices/InvoiceStatusBadge';
-import { deleteInvoice, fetchInvoice, formatDate, formatFcfa, getPhotoUrl, getKnownSupplierNames, updateInvoiceSupplier } from '../lib/invoices';
+import { InvoicePhoto } from '../components/invoices/InvoiceThumbnail';
+import { deleteInvoice, fetchInvoice, formatDate, formatFcfa, getKnownSupplierNames, updateInvoiceSupplier } from '../lib/invoices';
 import { invoiceLandedTotal, transportFeeOf } from '../lib/landed-cost';
 import { displaySupplier, isNamedSupplier } from '../lib/supplier';
-import { isOfflineInvoiceId } from '../lib/offline/queue';
 import { useAuth } from '../context/AuthContext';
-import { Input } from '../components/ui/Input';
 import type { Invoice } from '../types/invoice';
 
 export default function InvoiceDetailPage() {
@@ -17,32 +19,23 @@ export default function InvoiceDetailPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [supplierEdit, setSupplierEdit] = useState('');
   const [knownSuppliers, setKnownSuppliers] = useState<string[]>([]);
   const [savingSupplier, setSavingSupplier] = useState(false);
+  const [supplierSaved, setSupplierSaved] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    let blobUrl: string | null = null;
     fetchInvoice(id).then((inv) => {
       if (cancelled) return;
       setInvoice(inv);
       setSupplierEdit(inv?.supplier_name_raw || '');
-      if (!inv?.photo_path) return;
-      getPhotoUrl(inv.photo_path).then((url) => {
-        if (cancelled) {
-          if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
-          return;
-        }
-        blobUrl = url;
-        setPhotoUrl(url);
-      });
+      setLoading(false);
     });
     return () => {
       cancelled = true;
-      if (blobUrl?.startsWith('blob:')) URL.revokeObjectURL(blobUrl);
     };
   }, [id]);
 
@@ -52,17 +45,25 @@ export default function InvoiceDetailPage() {
   }, [user]);
 
   const handleDelete = async () => {
-    if (!invoice || !confirm('Supprimer cette facture ?')) return;
+    if (!invoice || !confirm('Supprimer ce reçu et sa photo de cet appareil ?')) return;
     await deleteInvoice(invoice.id, invoice.photo_path);
-    navigate('/factures');
+    navigate('/factures', { replace: true });
   };
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <AppHeader title="Reçu" backTo="/factures" />
+        <Spinner />
+      </AppLayout>
+    );
+  }
 
   if (!invoice) {
     return (
       <AppLayout>
-        <div className="flex justify-center py-20">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#2563EB] border-t-transparent" />
-        </div>
+        <AppHeader title="Reçu" backTo="/factures" />
+        <Notice tone="warning">Ce reçu n’existe plus sur cet appareil.</Notice>
       </AppLayout>
     );
   }
@@ -73,95 +74,101 @@ export default function InvoiceDetailPage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Reçu" backTo="/factures" />
+      <AppHeader title={displaySupplier(invoice.supplier_name_raw)} subtitle={formatDate(invoice.invoice_date || invoice.created_at)} backTo="/factures" />
 
-      {photoUrl && (
-        <img src={photoUrl} alt="Facture" className="mb-4 max-h-64 w-full rounded-2xl object-cover" />
-      )}
+      <InvoicePhoto photoPath={invoice.photo_path} className="mb-3" />
 
-      <Card className="mb-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold">{displaySupplier(invoice.supplier_name_raw)}</h2>
-          <InvoiceStatusBadge status={invoice.status} queued={isOfflineInvoiceId(invoice.id)} />
+      <Card className="mb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[13px] text-muted">Coût total réel</p>
+            <p className="mt-0.5 text-[28px] font-bold leading-none tracking-tight text-ink">{formatFcfa(landedTotal)}</p>
+          </div>
+          <InvoiceStatusBadge status={invoice.status} />
         </div>
-        <p className="text-sm text-[#64748B]">{formatDate(invoice.created_at)}</p>
-        <p className="text-2xl font-bold text-[#1E3A8A]">{formatFcfa(landedTotal)}</p>
         {transportFee > 0 && (
-          <p className="text-sm text-[#64748B]">
-            Facture {formatFcfa(Number(invoice.total_amount))} + transport {formatFcfa(transportFee)}
+          <p className="mt-3 border-t border-line pt-3 text-[13px] text-muted">
+            Reçu {formatFcfa(Number(invoice.total_amount))} + transport {formatFcfa(transportFee)}
           </p>
         )}
-        {isOfflineInvoiceId(invoice.id) && (
-          <p className="text-sm text-cyan-800">Sur cet appareil — envoi au cloud à la reconnexion.</p>
-        )}
-        {(invoice.notes || '').replace(/Hors-ligne[^.]*\.\s*/gi, '').trim() && (
-          <p className="text-sm text-[#64748B]">
-            {(invoice.notes || '').replace(/Hors-ligne[^.]*\.\s*/gi, '').trim()}
-          </p>
-        )}
-        {!isNamedSupplier(invoice.supplier_name_raw) && (
-          <p className="text-xs text-amber-800">
-            Pas de nom sur le ticket. Vous pouvez indiquer le vendeur ci-dessous si vous le connaissez.
-          </p>
-        )}
+        {invoice.notes && <p className="mt-2 text-[13px] text-ink-2">{invoice.notes}</p>}
       </Card>
 
       {invoice.status === 'validated' && (
-        <Card className="mb-4 space-y-2">
+        <Card className="mb-4 space-y-3">
           <Input
             label="Fournisseur"
             value={supplierEdit}
-            onChange={(e) => setSupplierEdit(e.target.value)}
+            onChange={(e) => {
+              setSupplierEdit(e.target.value);
+              setSupplierSaved(false);
+            }}
             list="known-suppliers-detail"
-            placeholder="Nom du vendeur, si vous le connaissez"
+            placeholder="Nom du vendeur"
+            hint={!isNamedSupplier(invoice.supplier_name_raw) ? 'Pas de nom sur le ticket. Indiquez le vendeur si vous le connaissez.' : undefined}
           />
           <datalist id="known-suppliers-detail">
             {knownSuppliers.map((name) => (
               <option key={name} value={name} />
             ))}
           </datalist>
-          <Button
-            type="button"
-            variant="secondary"
-            fullWidth
-            disabled={savingSupplier}
-            onClick={async () => {
-              setSavingSupplier(true);
-              try {
-                await updateInvoiceSupplier(invoice.id, supplierEdit);
-                const next = await fetchInvoice(invoice.id);
-                if (next) setInvoice(next);
-              } finally {
-                setSavingSupplier(false);
-              }
-            }}
-          >
-            {savingSupplier ? 'Enregistrement…' : 'Enregistrer le fournisseur'}
-          </Button>
+          {supplierEdit.trim() !== (invoice.supplier_name_raw || '').trim() && (
+            <Button
+              type="button"
+              variant="secondary"
+              fullWidth
+              loading={savingSupplier}
+              onClick={async () => {
+                setSavingSupplier(true);
+                try {
+                  await updateInvoiceSupplier(invoice.id, supplierEdit);
+                  const next = await fetchInvoice(invoice.id);
+                  if (next) setInvoice(next);
+                  setSupplierSaved(true);
+                } finally {
+                  setSavingSupplier(false);
+                }
+              }}
+            >
+              Enregistrer le fournisseur
+            </Button>
+          )}
+          {supplierSaved && <Notice tone="success">Fournisseur enregistré.</Notice>}
         </Card>
       )}
 
-      <h3 className="mb-2 text-sm font-bold">Articles</h3>
-      {items.map((item, i) => (
-        <Card key={item.id ?? i} className="mb-3 py-3 text-sm">
-          <div className="flex justify-between gap-2">
-            <span className="font-semibold text-[#0F172A]">
-              {item.product_name} <span className="font-normal text-[#64748B]">×{Number(item.quantity)}</span>
-            </span>
-            <span className="font-semibold">{formatFcfa(Number(item.total_price))}</span>
-          </div>
-          <p className="mt-0.5 text-xs text-[#64748B]">{formatFcfa(Number(item.unit_price))} / unité</p>
+      <SectionTitle>Articles</SectionTitle>
+      {items.length === 0 ? (
+        <Card className="text-[13px] text-muted">Aucun article détaillé sur ce reçu.</Card>
+      ) : (
+        <Card padding="none" className="divide-y divide-line">
+          {items.map((item, i) => (
+            <div key={item.id ?? i} className="flex items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-[15px] font-medium text-ink">{item.product_name || 'Article'}</p>
+                <p className="text-[13px] text-muted">
+                  {Number(item.quantity)} {item.unit} × {formatFcfa(Number(item.unit_price))}
+                </p>
+              </div>
+              <span className="shrink-0 text-[15px] font-semibold text-ink">{formatFcfa(Number(item.total_price))}</span>
+            </div>
+          ))}
         </Card>
-      ))}
-
-      {invoice.status === 'pending' && (
-        <Link to={`/factures/${invoice.id}/valider`}>
-          <Button fullWidth className="mt-4">Valider</Button>
-        </Link>
       )}
-      <Button variant="danger" fullWidth className="mt-2" onClick={handleDelete}>
-        Supprimer
-      </Button>
+
+      <div className="mt-5 space-y-2">
+        {invoice.status === 'pending' && (
+          <Link to={`/factures/${invoice.id}/valider`} className="block">
+            <Button fullWidth size="lg">
+              Vérifier et valider
+            </Button>
+          </Link>
+        )}
+        <Button variant="danger" fullWidth onClick={handleDelete}>
+          <Trash2 size={18} />
+          Supprimer ce reçu
+        </Button>
+      </div>
     </AppLayout>
   );
 }

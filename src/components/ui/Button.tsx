@@ -1,34 +1,52 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
-type Variant = 'primary' | 'secondary' | 'demo' | 'danger';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
+type Size = 'md' | 'sm' | 'lg';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
+  size?: Size;
   children: ReactNode;
   fullWidth?: boolean;
+  loading?: boolean;
 }
 
 const variants: Record<Variant, string> = {
-  primary:
-    'bg-gradient-to-r from-[#1D4ED8] via-[#2563EB] to-[#0284C7] text-white shadow-btn-electric border border-blue-400/40 hover:brightness-110 active:scale-[0.98]',
-  secondary:
-    'border border-[#1E3A8A]/30 text-[#1E3A8A] bg-[#E2E8F0] shadow-neo-inset hover:bg-[#DDE5EE] active:scale-[0.98]',
-  demo: 'bg-[#E2E8F0] text-[#1E3A8A] shadow-neo-inset border border-white/80 hover:bg-[#DDE5EE] active:scale-[0.98]',
-  danger: 'bg-gradient-to-r from-[#DC2626] to-[#B91C1C] text-white shadow-sm hover:brightness-110 active:scale-[0.98]',
+  primary: 'bg-primary text-white hover:bg-primary-strong active:bg-primary-strong',
+  secondary: 'bg-surface text-ink border border-line hover:bg-surface-2 active:bg-surface-2',
+  ghost: 'bg-transparent text-primary hover:bg-primary-soft active:bg-primary-soft',
+  danger: 'bg-danger-soft text-danger border border-danger/15 hover:bg-red-100 active:bg-red-100',
+};
+
+const sizes: Record<Size, string> = {
+  sm: 'h-9 px-3 text-[13px] rounded-[10px] gap-1.5',
+  md: 'h-11 px-4 text-sm rounded-control gap-2',
+  lg: 'h-12 px-5 text-[15px] rounded-control gap-2',
 };
 
 export function Button({
   variant = 'primary',
+  size = 'md',
   children,
   fullWidth = false,
+  loading = false,
   className = '',
+  disabled,
   ...props
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold tracking-wide transition-all duration-150 disabled:opacity-50 ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`}
+      className={`inline-flex items-center justify-center font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${fullWidth ? 'w-full' : ''} ${className}`}
+      disabled={disabled || loading}
       {...props}
     >
+      {loading && (
+        <span
+          className="inline-block h-4 w-4 shrink-0 rounded-full border-2 border-current border-t-transparent"
+          style={{ animation: 'spin 0.8s linear infinite' }}
+          aria-hidden
+        />
+      )}
       {children}
     </button>
   );

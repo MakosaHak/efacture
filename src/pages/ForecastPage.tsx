@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { ChevronRight, TrendingUp } from 'lucide-react';
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
-import { Card } from '../components/ui/Card';
+import { Card, SectionTitle } from '../components/ui/Card';
+import { Badge, EmptyState, Spinner } from '../components/ui/Feedback';
 import { useAuth } from '../context/AuthContext';
-import { formatFcfa, getProductPriceForecasts, getSpendingForecast } from '../lib/invoices';
+import { formatAmount, formatFcfa, getProductPriceForecasts, getSpendingForecast } from '../lib/invoices';
 import type { ProductForecast, SpendingForecast } from '../types/invoice';
 
 function monthLabel(ym: string): string {
@@ -13,9 +15,9 @@ function monthLabel(ym: string): string {
 }
 
 function trendLabel(pct: number): string {
-  if (pct > 0.5) return `tendance à la hausse (+${pct} %/mois)`;
-  if (pct < -0.5) return `tendance à la baisse (${pct} %/mois)`;
-  return 'prix stables';
+  if (pct > 0.5) return `en hausse (+${pct} % par mois)`;
+  if (pct < -0.5) return `en baisse (${pct} % par mois)`;
+  return 'stable';
 }
 
 export default function ForecastPage() {
@@ -35,87 +37,89 @@ export default function ForecastPage() {
 
   const chartData = spend
     ? [
-        ...spend.history.map((h) => ({ month: monthLabel(h.month), total: h.total, type: 'observé' })),
-        {
-          month: monthLabel(spend.predicted_month),
-          total: spend.predicted_total,
-          type: 'prévu',
-        },
+        ...spend.history.map((h) => ({ month: monthLabel(h.month), total: h.total })),
+        { month: monthLabel(spend.predicted_month), total: spend.predicted_total, predicted: true },
       ]
     : [];
 
   return (
     <AppLayout>
-      <AppHeader title="Mois prochain" backTo="/" />
+      <AppHeader title="Budget du mois prochain" backTo="/" />
 
-      <p className="mb-4 text-xs leading-relaxed text-[#64748B]">
-        Informatique décisionnelle : moyenne des 3 derniers mois, ajustée du taux d’inflation moyen détecté
-        sur vos prix unitaires. Les prix produits sont extrapolés par régression linéaire (moindres carrés).
-        Ce n’est pas un modèle de deep learning.
+      <p className="mb-3 text-[13px] leading-relaxed text-muted">
+        Estimation à partir de la moyenne de vos trois derniers mois, ajustée de l’évolution récente de vos prix d’achat.
       </p>
 
       {loading ? (
-        <Card className="text-center text-sm text-[#64748B]">Calcul…</Card>
+        <Spinner />
       ) : !spend ? (
-        <Card className="text-sm text-[#64748B]">
-          Au moins deux mois de factures validées sont nécessaires pour une prévision.
-        </Card>
+        <EmptyState icon={TrendingUp} title="Pas encore de prévision" text="Il faut au moins deux mois de reçus validés pour estimer le mois prochain." />
       ) : (
         <>
-          <Card className="relative mb-4 overflow-hidden border-blue-400/20 bg-gradient-to-br from-[#1E3A8A] via-[#172554] to-[#0F172A] text-white shadow-sapphire-depth">
-            <div className="pointer-events-none absolute -bottom-10 -right-10 h-40 w-40 rounded-full bg-gradient-to-br from-[#06B6D4]/25 to-[#10B981]/15 blur-2xl" />
-            <div className="absolute left-0 right-0 top-0 h-[2px] bg-gradient-to-r from-[#06B6D4] via-[#38BDF8] to-[#10B981]" />
-            <p className="text-sm opacity-90">Prévision trésorerie</p>
-            <p className="text-3xl font-bold">{formatFcfa(spend.predicted_total)}</p>
-            <p className="mt-2 text-xs leading-relaxed opacity-90">{spend.summary}</p>
+          <Card className="mb-3">
+            <p className="text-[13px] text-muted">Budget estimé</p>
+            <p className="mt-1 text-[32px] font-bold leading-none tracking-tight text-ink">
+              {formatAmount(spend.predicted_total)} <span className="text-base font-semibold text-muted">FCFA</span>
+            </p>
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-2">{spend.summary}</p>
           </Card>
 
-          <Card className="mb-4 h-52">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} width={40} />
-                <Tooltip formatter={(v: number) => formatFcfa(v)} />
-                <Line type="monotone" dataKey="total" stroke="#2563EB" strokeWidth={2} dot />
-              </LineChart>
-            </ResponsiveContainer>
+          <Card className="mb-4">
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+                  <CartesianGrid stroke="#eef0f3" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={56} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} />
+                  <Tooltip formatter={(v: number) => formatFcfa(v)} contentStyle={{ borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 13 }} />
+                  <Line type="monotone" dataKey="total" name="Dépenses" stroke="#2563eb" strokeWidth={2} dot={{ r: 3, fill: '#2563eb' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="mt-2 text-xs text-muted">Le dernier point est l’estimation du mois prochain.</p>
           </Card>
         </>
       )}
 
-      <h2 className="mb-2 text-sm font-bold">Projection des prix</h2>
-      {products.length === 0 ? (
-        <Card className="text-sm text-[#64748B]">Pas assez d’historique produit (minimum 2 mois).</Card>
-      ) : (
-        products.map((p) => {
-          const best = p.by_supplier[0];
-          return (
-            <Card key={p.product_name} className="mb-2">
-              <p className="text-sm font-semibold">{p.product_name}</p>
-              <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
-                Le prix suit une {trendLabel(p.monthly_pct)}. Prix prédit le mois prochain
-                {best ? ` chez ${best.name}` : ''} : {formatFcfa(best?.predicted_price ?? p.predicted_price)}{' '}
-                (vs {formatFcfa(best?.last_price ?? p.last_price)} aujourd’hui).
-              </p>
-              {p.by_supplier.length > 1 && (
-                <div className="mt-2 space-y-0.5">
-                  {p.by_supplier.map((s) => (
-                    <p key={s.name} className="text-xs text-[#94A3B8]">
-                      {s.name} · prévu {formatFcfa(s.predicted_price)} · {s.monthly_pct >= 0 ? '+' : ''}
-                      {s.monthly_pct} %/mois
+      {!loading && (
+        <>
+          <SectionTitle>Prix attendus par produit</SectionTitle>
+          {products.length === 0 ? (
+            <Card className="text-[13px] text-muted">Pas assez d’historique par produit (deux mois minimum).</Card>
+          ) : (
+            <Card padding="none" className="divide-y divide-line">
+              {products.map((p) => {
+                const best = p.by_supplier[0];
+                return (
+                  <div key={p.product_name} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[15px] font-medium text-ink">{p.product_name}</p>
+                      <Badge tone={p.monthly_pct > 0.5 ? 'warning' : p.monthly_pct < -0.5 ? 'success' : 'neutral'}>{trendLabel(p.monthly_pct)}</Badge>
+                    </div>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted">
+                      Attendu le mois prochain{best ? ` chez ${best.name}` : ''} : <strong className="text-ink">{formatFcfa(best?.predicted_price ?? p.predicted_price)}</strong> (aujourd’hui {formatFcfa(best?.last_price ?? p.last_price)}).
                     </p>
-                  ))}
-                </div>
-              )}
+                    {p.by_supplier.length > 1 && (
+                      <ul className="mt-1.5 space-y-0.5">
+                        {p.by_supplier.map((s) => (
+                          <li key={s.name} className="text-xs text-muted">
+                            {s.name} · {formatFcfa(s.predicted_price)} · {s.monthly_pct >= 0 ? '+' : ''}
+                            {s.monthly_pct} % par mois
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
             </Card>
-          );
-        })
-      )}
+          )}
 
-      <Link to="/stats/optimisation" className="mt-4 block text-sm font-semibold text-[#1E3A8A]">
-        Recommandation d’approvisionnement →
-      </Link>
+          <Link to="/stats/optimisation" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">
+            Voir le conseil d’achat <ChevronRight size={16} />
+          </Link>
+        </>
+      )}
     </AppLayout>
   );
 }
-

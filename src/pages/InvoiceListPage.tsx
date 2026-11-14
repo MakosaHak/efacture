@@ -1,138 +1,142 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { ReceiptText, Search, X } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card } from '../components/ui/Card';
+import { EmptyState, Spinner } from '../components/ui/Feedback';
 import { InvoiceThumbnail } from '../components/invoices/InvoiceThumbnail';
 import { InvoiceStatusBadge } from '../components/invoices/InvoiceStatusBadge';
 import { useAuth } from '../context/AuthContext';
-import { fetchInvoices, formatDate, formatFcfa, flushOfflineQueue, getOfflineQueueCount } from '../lib/invoices';
+import { fetchInvoices, formatDate, formatFcfa } from '../lib/invoices';
 import { invoiceLandedTotal } from '../lib/landed-cost';
 import { displaySupplier } from '../lib/supplier';
-import { isOfflineInvoiceId } from '../lib/offline/queue';
-import { Button } from '../components/ui/Button';
 import type { Invoice } from '../types/invoice';
+
+const FILTERS: { value: string; label: string }[] = [
+  { value: '', label: 'Tous' },
+  { value: 'validated', label: 'Validés' },
+  { value: 'pending', label: 'À vérifier' },
+  { value: 'rejected', label: 'Rejetés' },
+];
 
 export default function InvoiceListPage() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [queueCount, setQueueCount] = useState(0);
-  const [syncing, setSyncing] = useState(false);
   const search = params.get('q') || '';
   const status = params.get('status') || '';
-
-  const reload = () => {
-    if (!user) return;
-    fetchInvoices(search, status, user.id)
-      .then(setInvoices)
-      .finally(() => setLoading(false));
-    getOfflineQueueCount(user.id).then(setQueueCount);
-  };
+  const [query, setQuery] = useState(search);
 
   useEffect(() => {
-    reload();
-    const onOnline = () => reload();
-    window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
+    if (!user) return;
+    let cancelled = false;
+    fetchInvoices(user.id, search, status).then((list) => {
+      if (cancelled) return;
+      setInvoices(list);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user, search, status]);
 
-  const setFilter = (s: string) => {
+  const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
-    if (s) next.set('status', s);
-    else next.delete('status');
-    setParams(next);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
   };
 
   return (
     <AppLayout>
       <AppHeader title="Mes reçus" backTo="/" />
 
-      {queueCount > 0 && (
-        <Card className="mb-3 border-cyan-200 bg-cyan-50">
-          <p className="text-sm text-cyan-900">
-            {queueCount} facture{queueCount > 1 ? 's' : ''} sur cet appareil, pas encore envoyée
-            {queueCount > 1 ? 's' : ''} au cloud.
-          </p>
-          <Button
-            type="button"
-            variant="secondary"
-            className="mt-2"
-            disabled={syncing}
-            onClick={async () => {
-              if (!user) return;
-              setSyncing(true);
-              await flushOfflineQueue(user.id);
-              reload();
-              setSyncing(false);
-            }}
-          >
-            {syncing ? 'Envoi…' : 'Envoyer maintenant'}
-          </Button>
-        </Card>
-      )}
-
       <form
-        className="mb-3 flex items-center gap-2 rounded-xl border border-white/70 bg-[#E2E8F0] px-3 py-2 shadow-neo-inset"
+        className="mb-3 flex h-11 items-center gap-2 rounded-control border border-line bg-surface px-3"
         onSubmit={(e) => {
           e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          const q = String(fd.get('q') || '');
-          const next = new URLSearchParams(params);
-          if (q) next.set('q', q);
-          else next.delete('q');
-          setParams(next);
+          setParam('q', query.trim());
         }}
+        role="search"
       >
-        <span>🔍</span>
-        <input name="q" defaultValue={search} placeholder="Chercher un reçu…" className="flex-1 bg-transparent text-sm outline-none" />
+        <Search size={18} className="shrink-0 text-muted" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Fournisseur, produit…"
+          className="min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-faint"
+          aria-label="Rechercher un reçu"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('');
+              setParam('q', '');
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-surface-2"
+            aria-label="Effacer la recherche"
+          >
+            <X size={16} />
+          </button>
+        )}
       </form>
 
-      <div className="mb-4 flex gap-2 overflow-x-auto">
-        {['', 'validated', 'pending'].map((s) => (
-          <button
-            key={s || 'all'}
-            type="button"
-            onClick={() => setFilter(s)}
-            className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${status === s ? 'bg-[#1E3A8A] text-white shadow-sm' : 'border border-white/70 bg-[#E2E8F0] text-[#64748B] shadow-neo-inset'}`}
-          >
-            {s === '' ? 'Toutes' : s === 'validated' ? 'Validées' : 'En attente'}
-          </button>
-        ))}
+      <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto">
+        {FILTERS.map((f) => {
+          const active = status === f.value;
+          return (
+            <button
+              key={f.value || 'all'}
+              type="button"
+              onClick={() => setParam('status', f.value)}
+              className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
+                active ? 'border-primary bg-primary text-white' : 'border-line bg-surface text-ink-2 hover:bg-surface-2'
+              }`}
+              aria-pressed={active}
+            >
+              {f.label}
+            </button>
+          );
+        })}
       </div>
 
-      <h2 className="mb-3 text-sm font-bold">Tous vos reçus</h2>
-
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#2563EB] border-t-transparent" />
-        </div>
+        <Spinner />
       ) : invoices.length === 0 ? (
-        <Card className="text-center">
-          <p className="mb-4 text-sm text-[#64748B]">Aucun reçu pour l’instant.</p>
-          <Link to="/scanner" className="text-sm font-semibold text-[#1E3A8A]">
-            Scanner mon premier reçu
-          </Link>
-        </Card>
+        <EmptyState
+          icon={ReceiptText}
+          title={search || status ? 'Aucun reçu ne correspond' : 'Aucun reçu pour l’instant'}
+          text={search || status ? 'Modifiez la recherche ou le filtre.' : 'Scannez votre premier reçu depuis le bouton central.'}
+          action={
+            !search && !status ? (
+              <Link to="/scanner" className="text-sm font-semibold text-primary">
+                Scanner un reçu
+              </Link>
+            ) : undefined
+          }
+        />
       ) : (
-        invoices.map((inv) => (
-          <Link
-            key={inv.id}
-            to={inv.status === 'pending' ? `/factures/${inv.id}/valider` : `/factures/${inv.id}`}
-          >
-            <Card className="mb-2 flex items-center gap-3 py-3">
-              <InvoiceThumbnail photoPath={inv.photo_path} />
+        <Card padding="none" className="divide-y divide-line">
+          {invoices.map((inv) => (
+            <Link
+              key={inv.id}
+              to={inv.status === 'pending' ? `/factures/${inv.id}/valider` : `/factures/${inv.id}`}
+              className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2"
+            >
+              <InvoiceThumbnail photoPath={inv.photo_path} size={48} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-sm">{displaySupplier(inv.supplier_name_raw)}</p>
-                <p className="text-xs text-[#64748B]">{formatDate(inv.created_at)}</p>
+                <p className="truncate text-[15px] font-medium text-ink">{displaySupplier(inv.supplier_name_raw)}</p>
+                <p className="mt-0.5 text-[13px] text-muted">{formatDate(inv.invoice_date || inv.created_at)}</p>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-bold">{formatFcfa(invoiceLandedTotal(inv))}</p>
-                <InvoiceStatusBadge status={inv.status} queued={isOfflineInvoiceId(inv.id)} />
+              <div className="flex flex-col items-end gap-1">
+                <p className="text-[15px] font-semibold text-ink">{formatFcfa(invoiceLandedTotal(inv))}</p>
+                <InvoiceStatusBadge status={inv.status} />
               </div>
-            </Card>
-          </Link>
-        ))
+            </Link>
+          ))}
+        </Card>
       )}
     </AppLayout>
   );

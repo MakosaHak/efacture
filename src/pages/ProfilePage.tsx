@@ -1,24 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronDown, ChevronUp, Download, HardDrive, KeyRound, LogOut } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
-import { Card } from '../components/ui/Card';
+import { Card, SectionTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Notice } from '../components/ui/Feedback';
 import { PwaInstallBanner } from '../components/pwa/PwaInstallBanner';
 import { usePwaInstall } from '../hooks/usePwaInstall';
 import { useAuth } from '../context/AuthContext';
-import { flushOfflineQueue, getOfflineQueueCount, getValidatedInvoicesForMonth } from '../lib/invoices';
-import { formatPhoneDisplay, loginPhoneFromInternalEmail } from '../lib/auth/phone-auth';
+import { getValidatedInvoicesForMonth } from '../lib/invoices';
+import { formatPhoneDisplay } from '../lib/auth/phone-auth';
 import { DEFAULT_MARGIN } from '../lib/pricing';
 import { getDefaultMargin, setDefaultMargin } from '../lib/productPrices';
 import { MarginPicker } from '../components/ui/MarginPicker';
-import {
-  buildMonthlyCsv,
-  buildMonthlyPdf,
-  downloadCsv,
-  downloadPdf,
-  monthLabelFr,
-} from '../lib/export-pdf';
+import { buildMonthlyCsv, buildMonthlyPdf, downloadCsv, downloadPdf, monthLabelFr } from '../lib/export-pdf';
 
 function currentMonthValue(): string {
   const d = new Date();
@@ -26,14 +22,12 @@ function currentMonthValue(): string {
 }
 
 export default function ProfilePage() {
-  const { user, profile, signOut, updateProfile, isLocalDemo } = useAuth();
+  const { user, profile, signOut, updateProfile, changePassword, isDemo } = useAuth();
   const { canInstall, isInstalled, isIos, install } = usePwaInstall();
   const navigate = useNavigate();
   const [monthValue, setMonthValue] = useState(currentMonthValue);
   const [exporting, setExporting] = useState<'pdf' | 'csv' | null>(null);
   const [exportMsg, setExportMsg] = useState('');
-  const [queueCount, setQueueCount] = useState(0);
-  const [syncing, setSyncing] = useState(false);
   const [nomCommerce, setNomCommerce] = useState('');
   const [telephone, setTelephone] = useState('');
   const [adresse, setAdresse] = useState('');
@@ -42,11 +36,12 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState('');
   const [profileError, setProfileError] = useState('');
-
-  useEffect(() => {
-    if (!user) return;
-    getOfflineQueueCount(user.id).then(setQueueCount);
-  }, [user]);
+  const [showPassword, setShowPassword] = useState(false);
+  const [pwdCurrent, setPwdCurrent] = useState('');
+  const [pwdNext, setPwdNext] = useState('');
+  const [pwdMsg, setPwdMsg] = useState('');
+  const [pwdError, setPwdError] = useState('');
+  const [pwdSaving, setPwdSaving] = useState(false);
 
   useEffect(() => {
     setNomCommerce(profile?.nom_commerce || '');
@@ -57,29 +52,21 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!user) return;
-    getDefaultMargin()
+    getDefaultMargin(user.id)
       .then((m) => setMarge(String(Math.round(m * 1000) / 10)))
       .catch(() => undefined);
   }, [user]);
 
   const handleSaveProfile = async (e: FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setProfileError('');
     setProfileMsg('');
     setSaving(true);
     try {
-      await updateProfile({
-        nom_commerce: nomCommerce,
-        telephone,
-        adresse,
-        quartier,
-      });
-      await setDefaultMargin((marge.trim() === '' ? DEFAULT_MARGIN * 100 : Number(marge)) / 100);
-      setProfileMsg(
-        isLocalDemo
-          ? 'Profil mis à jour pour cette session démo.'
-          : 'Profil enregistré.',
-      );
+      await updateProfile({ nom_commerce: nomCommerce, telephone, adresse, quartier });
+      await setDefaultMargin(user.id, (marge.trim() === '' ? DEFAULT_MARGIN * 100 : Number(marge)) / 100);
+      setProfileMsg('Modifications enregistrées.');
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : 'Enregistrement impossible');
     } finally {
@@ -87,11 +74,26 @@ export default function ProfilePage() {
     }
   };
 
-  const loginPhone = loginPhoneFromInternalEmail(user?.email);
+  const handleChangePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setPwdError('');
+    setPwdMsg('');
+    setPwdSaving(true);
+    try {
+      await changePassword(pwdCurrent, pwdNext);
+      setPwdMsg('Mot de passe modifié.');
+      setPwdCurrent('');
+      setPwdNext('');
+    } catch (err) {
+      setPwdError(err instanceof Error ? err.message : 'Modification impossible');
+    } finally {
+      setPwdSaving(false);
+    }
+  };
 
   const handleLogout = async () => {
     await signOut();
-    navigate('/auth/connexion');
+    navigate('/auth/connexion', { replace: true });
   };
 
   const parseMonth = () => {
@@ -99,163 +101,126 @@ export default function ProfilePage() {
     return { year: Number(ys), month: Number(ms) };
   };
 
-  const handlePdf = async () => {
+  const runExport = async (kind: 'pdf' | 'csv') => {
     if (!user) return;
     const { year, month } = parseMonth();
-    setExporting('pdf');
+    setExporting(kind);
     setExportMsg('');
     try {
       const invoices = await getValidatedInvoicesForMonth(user.id, year, month);
-      const pdf = buildMonthlyPdf({ profile, year, month, invoices });
-      downloadPdf(pdf, `efacture-${year}-${String(month).padStart(2, '0')}.pdf`);
+      const name = `efacture-${year}-${String(month).padStart(2, '0')}`;
+      if (kind === 'pdf') downloadPdf(buildMonthlyPdf({ profile, year, month, invoices }), `${name}.pdf`);
+      else downloadCsv(buildMonthlyCsv(invoices), `${name}.csv`);
       setExportMsg(
         invoices.length
-          ? `PDF de ${monthLabelFr(year, month)} téléchargé (${invoices.length} facture${invoices.length > 1 ? 's' : ''}).`
-          : `PDF téléchargé : aucune facture validée en ${monthLabelFr(year, month)}.`,
+          ? `${kind.toUpperCase()} de ${monthLabelFr(year, month)} téléchargé (${invoices.length} reçu${invoices.length > 1 ? 's' : ''}).`
+          : `Aucun reçu validé en ${monthLabelFr(year, month)} : fichier vide téléchargé.`,
       );
     } catch {
-      setExportMsg('Impossible de générer le PDF.');
+      setExportMsg('Impossible de générer le fichier.');
     } finally {
       setExporting(null);
     }
   };
 
-  const handleCsv = async () => {
-    if (!user) return;
-    const { year, month } = parseMonth();
-    setExporting('csv');
-    setExportMsg('');
-    try {
-      const invoices = await getValidatedInvoicesForMonth(user.id, year, month);
-      downloadCsv(buildMonthlyCsv(invoices), `efacture-${year}-${String(month).padStart(2, '0')}.csv`);
-      setExportMsg(
-        invoices.length
-          ? `CSV de ${monthLabelFr(year, month)} téléchargé.`
-          : `CSV téléchargé : aucune facture validée en ${monthLabelFr(year, month)}.`,
-      );
-    } catch {
-      setExportMsg('Impossible de générer le CSV.');
-    } finally {
-      setExporting(null);
-    }
-  };
+  const initial = (profile?.nom_commerce || '?').trim().charAt(0).toUpperCase();
 
   return (
     <AppLayout>
-      <AppHeader title="Compte" backTo="/" />
+      <AppHeader title="Mon compte" backTo="/" />
 
-      <div className="mb-6 text-center">
-        <div className="relative mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/70 bg-gradient-to-br from-[#E2E8F0] to-[#CBD5E1] font-editorial text-3xl font-bold italic text-[#1E3A8A] shadow-neo-card">
-          {(profile?.nom_commerce || user?.email || '?').charAt(0).toUpperCase()}
-          <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-[#E2E8F0] bg-[#10B981]" />
+      <div className="mb-5 flex items-center gap-4">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xl font-bold text-primary-ink">
+          {initial}
         </div>
-        <h2 className="text-lg font-bold">{profile?.nom_commerce || 'Mon commerce'}</h2>
-        <p className="text-sm text-[#64748B]">
-          {loginPhone || (profile?.telephone ? formatPhoneDisplay(profile.telephone) : '—')}
-        </p>
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold text-ink">{profile?.nom_commerce || 'Mon commerce'}</h2>
+          <p className="text-[13px] text-muted">{user ? formatPhoneDisplay(user.phone) : ''}</p>
+        </div>
       </div>
 
-      <form onSubmit={handleSaveProfile}>
-        <Card className="mb-4 space-y-3">
-          <p className="text-sm font-semibold">Informations du commerce</p>
-          <Input
-            label="Nom du commerce"
-            value={nomCommerce}
-            onChange={(e) => setNomCommerce(e.target.value)}
-            placeholder="Ex: Épicerie Adawlato"
-            required
-          />
-          <Input
-            label="Téléphone (affiché)"
-            type="tel"
-            value={telephone}
-            onChange={(e) => setTelephone(e.target.value)}
-            placeholder="90 12 34 56"
-          />
-          {loginPhone && (
-            <p className="text-[10px] leading-relaxed text-[#94A3B8]">
-              Connexion : {loginPhone}. Modifier le téléphone ici change le contact (PDF), pas l’identifiant de
-              connexion.
-            </p>
-          )}
-          {isLocalDemo && (
-            <p className="text-[10px] leading-relaxed text-[#94A3B8]">
-              Mode démo : les modifications restent jusqu’à la déconnexion.
-            </p>
-          )}
-          <Input
-            label="Adresse"
-            value={adresse}
-            onChange={(e) => setAdresse(e.target.value)}
-            placeholder="Marché Adawlato, Lomé"
-          />
-          <Input
-            label="Quartier / Marché"
-            value={quartier}
-            onChange={(e) => setQuartier(e.target.value)}
-            placeholder="Adawlato, Assivito…"
-          />
-          <MarginPicker value={marge} onChange={setMarge} title="Ma marge habituelle (%)" />
-          {profileError && <p className="text-sm text-red-600">{profileError}</p>}
-          {profileMsg && <p className="text-xs text-[#1E3A8A]">{profileMsg}</p>}
-          <Button type="submit" fullWidth disabled={saving}>
-            {saving ? 'Enregistrement…' : 'Enregistrer le profil'}
+      {isDemo && (
+        <Notice tone="info" className="mb-4">
+          Compte de démonstration avec des données d’exemple. Créez votre propre compte pour vos vrais reçus.
+        </Notice>
+      )}
+
+      <form onSubmit={handleSaveProfile} className="mb-4">
+        <SectionTitle>Mon commerce</SectionTitle>
+        <Card className="space-y-3">
+          <Input label="Nom du commerce" value={nomCommerce} onChange={(e) => setNomCommerce(e.target.value)} placeholder="Ex. : Épicerie Adawlato" required />
+          <Input label="Téléphone affiché sur les exports" type="tel" inputMode="numeric" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="90 12 34 56" />
+          <Input label="Adresse" value={adresse} onChange={(e) => setAdresse(e.target.value)} placeholder="Marché Adawlato, Lomé" />
+          <Input label="Quartier ou marché" value={quartier} onChange={(e) => setQuartier(e.target.value)} placeholder="Adawlato, Assivito…" />
+          <div className="border-t border-line pt-3">
+            <MarginPicker value={marge} onChange={setMarge} title="Ma marge habituelle" />
+          </div>
+          {profileError && <Notice tone="danger">{profileError}</Notice>}
+          {profileMsg && <Notice tone="success">{profileMsg}</Notice>}
+          <Button type="submit" fullWidth loading={saving}>
+            Enregistrer
           </Button>
         </Card>
       </form>
 
-      {queueCount > 0 && (
-        <Card className="mb-4 border-cyan-200 bg-cyan-50">
-          <p className="mb-2 text-sm font-semibold text-cyan-900">File hors-ligne</p>
-          <p className="mb-3 text-xs text-cyan-800">
-            {queueCount} facture{queueCount > 1 ? 's' : ''} enregistrée
-            {queueCount > 1 ? 's' : ''} sur cet appareil. Envoi automatique dès que le réseau revient.
-          </p>
-          <Button
-            type="button"
-            variant="secondary"
-            fullWidth
-            disabled={syncing}
-            onClick={async () => {
-              if (!user) return;
-              setSyncing(true);
-              await flushOfflineQueue(user.id);
-              const n = await getOfflineQueueCount(user.id);
-              setQueueCount(n);
-              setSyncing(false);
-            }}
-          >
-            {syncing ? 'Envoi…' : 'Envoyer maintenant'}
-          </Button>
+      <section className="mb-4">
+        <SectionTitle>Export mensuel</SectionTitle>
+        <Card className="space-y-3">
+          <p className="text-[13px] leading-relaxed text-muted">Reçus validés du mois avec totaux, fournisseurs et articles. Pratique pour un comptable.</p>
+          <Input label="Mois" type="month" value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant="secondary" loading={exporting === 'pdf'} disabled={exporting !== null} onClick={() => runExport('pdf')}>
+              <Download size={16} />
+              PDF
+            </Button>
+            <Button type="button" variant="secondary" loading={exporting === 'csv'} disabled={exporting !== null} onClick={() => runExport('csv')}>
+              <Download size={16} />
+              CSV
+            </Button>
+          </div>
+          {exportMsg && <Notice tone="neutral">{exportMsg}</Notice>}
         </Card>
-      )}
+      </section>
 
-      <Card className="mb-4">
-        <p className="mb-3 text-sm font-semibold">Application</p>
-        <PwaInstallBanner
-          canInstall={canInstall}
-          isInstalled={isInstalled}
-          isIos={isIos}
-          onInstall={() => install()}
-        />
-      </Card>
+      <section className="mb-4">
+        <SectionTitle>Sécurité</SectionTitle>
+        <Card padding="none">
+          <button type="button" onClick={() => setShowPassword((v) => !v)} className="flex w-full items-center gap-3 px-4 py-3 text-left" aria-expanded={showPassword}>
+            <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-surface-2 text-ink-2">
+              <KeyRound size={18} />
+            </div>
+            <span className="flex-1 text-[15px] font-medium text-ink">Changer le mot de passe</span>
+            {showPassword ? <ChevronUp size={18} className="text-faint" /> : <ChevronDown size={18} className="text-faint" />}
+          </button>
+          {showPassword && (
+            <form onSubmit={handleChangePassword} className="space-y-3 border-t border-line px-4 py-4">
+              <Input label="Mot de passe actuel" type="password" autoComplete="current-password" value={pwdCurrent} onChange={(e) => setPwdCurrent(e.target.value)} required />
+              <Input label="Nouveau mot de passe" type="password" autoComplete="new-password" minLength={6} value={pwdNext} onChange={(e) => setPwdNext(e.target.value)} hint="6 caractères minimum" required />
+              {pwdError && <Notice tone="danger">{pwdError}</Notice>}
+              {pwdMsg && <Notice tone="success">{pwdMsg}</Notice>}
+              <Button type="submit" variant="secondary" fullWidth loading={pwdSaving}>
+                Modifier
+              </Button>
+            </form>
+          )}
+        </Card>
+      </section>
 
-      <Card className="mb-4 space-y-3">
-        <p className="text-sm font-semibold">Export mensuel</p>
-        <p className="text-xs text-[#64748B]">
-          Factures validées du mois : totaux, fournisseurs et lignes produits. Utile pour un expert-comptable.
-        </p>
-        <Input label="Mois" type="month" value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
-        <Button type="button" fullWidth disabled={exporting !== null} onClick={handlePdf}>
-          {exporting === 'pdf' ? 'Préparation…' : 'Télécharger le PDF'}
-        </Button>
-        <Button type="button" variant="secondary" fullWidth disabled={exporting !== null} onClick={handleCsv}>
-          {exporting === 'csv' ? 'Préparation…' : 'Télécharger le CSV'}
-        </Button>
-        {exportMsg && <p className="text-xs text-[#1E3A8A]">{exportMsg}</p>}
-      </Card>
+      <section className="mb-4">
+        <SectionTitle>Application</SectionTitle>
+        <div className="space-y-2">
+          <PwaInstallBanner canInstall={canInstall} isInstalled={isInstalled} isIos={isIos} onInstall={() => install()} />
+          <Notice tone="neutral">
+            <span className="flex items-start gap-2">
+              <HardDrive size={16} className="mt-0.5 shrink-0" />
+              <span>Vos reçus, photos et prix sont enregistrés sur cet appareil uniquement. Pensez à exporter chaque mois.</span>
+            </span>
+          </Notice>
+        </div>
+      </section>
 
       <Button variant="danger" fullWidth onClick={handleLogout}>
+        <LogOut size={18} />
         Se déconnecter
       </Button>
     </AppLayout>

@@ -43,3 +43,4 @@ Thumbs.db
 
 # Supabase CLI (local)
 .supabase/
+.claude/

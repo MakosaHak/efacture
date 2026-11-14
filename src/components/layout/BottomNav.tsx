@@ -1,78 +1,62 @@
 import { NavLink, useLocation } from 'react-router-dom';
+import { Camera, Home, ReceiptText, Tags, UserRound, type LucideIcon } from 'lucide-react';
 
-const navClass = ({ isActive }: { isActive: boolean }) =>
-  `flex flex-1 flex-col items-center justify-center transition-colors ${
-    isActive ? 'text-[#1E3A8A]' : 'text-[#64748B] hover:text-[#0F172A]'
-  }`;
+const items: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
+  { to: '/', label: 'Accueil', icon: Home, end: true },
+  { to: '/factures', label: 'Reçus', icon: ReceiptText },
+];
 
-const labelClass = (isActive: boolean) =>
-  `mt-1 text-xs tracking-tight ${isActive ? 'font-bold' : 'font-medium'}`;
+const itemsRight: { to: string; label: string; icon: LucideIcon }[] = [
+  { to: '/prix-de-vente', label: 'Prix', icon: Tags },
+  { to: '/profil', label: 'Compte', icon: UserRound },
+];
+
+function Item({ to, label, icon: Icon, end }: { to: string; label: string; icon: LucideIcon; end?: boolean }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        `flex h-full flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
+          isActive ? 'text-primary' : 'text-muted hover:text-ink'
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <Icon size={22} strokeWidth={isActive ? 2.25 : 1.75} />
+          <span>{label}</span>
+        </>
+      )}
+    </NavLink>
+  );
+}
 
 export function BottomNav() {
-  const location = useLocation();
-  const isScanner = location.pathname === '/scanner';
-
-  if (isScanner) return null;
+  const { pathname } = useLocation();
+  if (pathname === '/scanner') return null;
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-[440px] -translate-x-1/2 border-t border-white/80 bg-[#E2E8F0]/95 pb-[env(safe-area-inset-bottom,0px)] shadow-nav-neo backdrop-blur-md">
-      <div className="relative flex h-16 items-center justify-around px-2">
-        <NavLink to="/" className={navClass} end>
-          {({ isActive }) => (
-            <>
-              <svg className="h-5 w-5 stroke-[2.2]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-              </svg>
-              <span className={labelClass(isActive)}>Accueil</span>
-            </>
-          )}
-        </NavLink>
-
-        <NavLink to="/factures" className={navClass}>
-          {({ isActive }) => (
-            <>
-              <svg className="h-5 w-5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className={labelClass(isActive)}>Reçus</span>
-            </>
-          )}
-        </NavLink>
-
-        <div className="flex flex-1 flex-col items-center justify-center">
+    <nav
+      className="fixed bottom-0 left-1/2 z-50 w-full max-w-[440px] -translate-x-1/2 border-t border-line bg-surface pb-[env(safe-area-inset-bottom,0px)]"
+      aria-label="Navigation principale"
+    >
+      <div className="flex h-[var(--nav-height)] items-stretch">
+        {items.map((it) => (
+          <Item key={it.to} {...it} />
+        ))}
+        <div className="flex flex-1 items-center justify-center">
           <NavLink
             to="/scanner"
             aria-label="Scanner un reçu"
-            className="-mt-7 flex h-[52px] w-[52px] items-center justify-center rounded-full border border-cyan-400/40 bg-gradient-to-tr from-[#0F172A] via-[#1E3A8A] to-[#2563EB] text-white shadow-floating-cam ring-4 ring-[#E2E8F0] transition-transform duration-150 active:scale-95"
+            className="-mt-6 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-white shadow-float ring-4 ring-bg transition-transform active:scale-95"
           >
-            <svg className="h-6 w-6 stroke-[1.9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
+            <Camera size={24} />
           </NavLink>
         </div>
-
-        <NavLink to="/stats/prix" className={navClass}>
-          {({ isActive }) => (
-            <>
-              <svg className="h-5 w-5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              <span className={labelClass(isActive)}>Prix</span>
-            </>
-          )}
-        </NavLink>
-
-        <NavLink to="/profil" className={navClass}>
-          {({ isActive }) => (
-            <>
-              <svg className="h-5 w-5 stroke-[1.8]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <span className={labelClass(isActive)}>Compte</span>
-            </>
-          )}
-        </NavLink>
+        {itemsRight.map((it) => (
+          <Item key={it.to} {...it} />
+        ))}
       </div>
     </nav>
   );

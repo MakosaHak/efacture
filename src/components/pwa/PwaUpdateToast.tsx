@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { RefreshCw } from 'lucide-react';
 import { Button } from '../ui/Button';
 
 export function PwaUpdateToast() {
@@ -23,13 +24,18 @@ export function PwaUpdateToast() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-[100] mx-auto max-w-[440px] rounded-2xl border border-white/80 bg-gradient-to-br from-[#EEF2F6] to-[#E2E8F0] p-3 shadow-neo-card">
-      <p className="mb-2 text-sm font-semibold text-[#0F172A]">Mise à jour disponible</p>
-      <p className="mb-3 text-xs text-[#64748B]">Une nouvelle version d&apos;efacture est prête.</p>
-      <div className="flex gap-2">
+    <div className="fixed bottom-[calc(var(--nav-height)+16px)] left-1/2 z-[100] w-[calc(100%-32px)] max-w-[408px] -translate-x-1/2 rounded-card border border-line bg-surface p-3 shadow-float">
+      <div className="flex items-start gap-3">
+        <RefreshCw size={18} className="mt-0.5 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-ink">Mise à jour disponible</p>
+          <p className="text-xs text-muted">Une nouvelle version d’efacture est prête.</p>
+        </div>
+      </div>
+      <div className="mt-3 flex gap-2">
         <Button
           type="button"
-          className="!py-2 !text-xs"
+          size="sm"
           onClick={() => {
             updateServiceWorker(true);
             setNeedRefresh(false);
@@ -40,8 +46,8 @@ export function PwaUpdateToast() {
         </Button>
         <Button
           type="button"
+          size="sm"
           variant="secondary"
-          className="!py-2 !text-xs"
           onClick={() => {
             setNeedRefresh(false);
             setVisible(false);

@@ -1,22 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Plus, Trash2 } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
-import { Card } from '../components/ui/Card';
+import { Card, SectionTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { InvoiceThumbnail } from '../components/invoices/InvoiceThumbnail';
-import {
-  fetchInvoice,
-  formatFcfa,
-  getKnownSupplierNames,
-  getPhotoUrl,
-  rejectInvoice,
-  validateInvoice,
-} from '../lib/invoices';
+import { Badge, Notice, Spinner } from '../components/ui/Feedback';
+import { InvoicePhoto } from '../components/invoices/InvoiceThumbnail';
+import { fetchInvoice, formatFcfa, getKnownSupplierNames, rejectInvoice, validateInvoice } from '../lib/invoices';
 import { transportFeeOf } from '../lib/landed-cost';
 import { invoiceTotalGap } from '../lib/pricing';
 import { isNamedSupplier } from '../lib/supplier';
-import { isOfflineInvoiceId } from '../lib/offline/queue';
 import { useAuth } from '../context/AuthContext';
 import type { Invoice, InvoiceItem } from '../types/invoice';
 
@@ -25,7 +19,6 @@ export default function ValidateInvoicePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [supplier, setSupplier] = useState('');
   const [knownSuppliers, setKnownSuppliers] = useState<string[]>([]);
   const [date, setDate] = useState('');
@@ -35,18 +28,22 @@ export default function ValidateInvoicePage() {
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!id) return;
     fetchInvoice(id).then((inv) => {
-      if (!inv) return;
+      if (!inv) {
+        setLoading(false);
+        return;
+      }
       setInvoice(inv);
       setSupplier(inv.supplier_name_raw || '');
       setDate(inv.invoice_date || '');
-      setTotal(String(inv.total_amount || ''));
+      setTotal(inv.total_amount ? String(inv.total_amount) : '');
       const fee = transportFeeOf(inv);
       setTransport(fee ? String(fee) : '');
-      setNotes((inv.notes || '').replace(/Hors-ligne[^.]*\.\s*/gi, '').trim());
+      setNotes(inv.notes || '');
       setItems(
         (inv.invoice_items || []).map((it) => ({
           ...it,
@@ -55,7 +52,6 @@ export default function ValidateInvoicePage() {
           total_price: Number(it.total_price),
         })),
       );
-      if (inv.photo_path) getPhotoUrl(inv.photo_path).then(setPhotoUrl);
       setLoading(false);
     });
   }, [id]);
@@ -78,21 +74,15 @@ export default function ValidateInvoicePage() {
   };
 
   const totalCheck = invoiceTotalGap(parseFloat(total) || 0, items);
+  const landed = (parseFloat(total) || 0) + (parseFloat(transport) || 0);
 
-  const addItem = () => {
-    setItems((prev) => [
-      ...prev,
-      { product_name: '', quantity: 1, unit: 'pièce', unit_price: 0, total_price: 0 },
-    ]);
-  };
-
-  const removeItem = (index: number) => {
-    setItems((prev) => prev.filter((_, i) => i !== index));
-  };
+  const addItem = () => setItems((prev) => [...prev, { product_name: '', quantity: 1, unit: 'pièce', unit_price: 0, total_price: 0 }]);
+  const removeItem = (index: number) => setItems((prev) => prev.filter((_, i) => i !== index));
 
   const handleValidate = async (e: FormEvent) => {
     e.preventDefault();
     if (!id) return;
+    setError('');
     setSaving(true);
     try {
       await validateInvoice(id, {
@@ -101,62 +91,56 @@ export default function ValidateInvoicePage() {
         total_amount: parseFloat(total) || 0,
         transport_fee: parseFloat(transport) || 0,
         notes,
-        items,
+        items: items.filter((it) => it.product_name.trim() || it.unit_price > 0),
       });
-      navigate(`/factures/${id}`);
+      navigate(`/factures/${id}`, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Enregistrement impossible');
     } finally {
       setSaving(false);
     }
   };
 
   const handleReject = async () => {
-    if (!id) return;
+    if (!id || !confirm('Rejeter ce reçu ? Il restera dans la liste comme rejeté.')) return;
     await rejectInvoice(id);
-    navigate('/factures');
+    navigate('/factures', { replace: true });
   };
 
-  if (loading || !invoice) {
+  if (loading) {
     return (
       <AppLayout>
-        <div className="flex justify-center py-20">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#2563EB] border-t-transparent" />
-        </div>
+        <AppHeader title="Vérifier le reçu" backTo="/factures" />
+        <Spinner />
+      </AppLayout>
+    );
+  }
+
+  if (!invoice) {
+    return (
+      <AppLayout>
+        <AppHeader title="Vérifier le reçu" backTo="/factures" />
+        <Notice tone="warning">Ce reçu n’existe plus sur cet appareil.</Notice>
       </AppLayout>
     );
   }
 
   const conf = invoice.ocr_raw_data?.confidence;
-  const provider = invoice.ocr_raw_data?.provider || 'tesseract.js';
-  const extraNotes = (invoice.notes || '').replace(/Hors-ligne[^.]*\.\s*/gi, '').trim();
 
   return (
     <AppLayout>
-      <AppHeader title="Vérifier le reçu" backTo="/scanner" />
+      <AppHeader title="Vérifier le reçu" backTo="/factures" subtitle="Corrigez ce qui a été mal lu, puis validez" />
 
-      {(photoUrl || invoice.photo_path) && (
-        <div className="mb-4 overflow-hidden rounded-2xl">
-          {photoUrl ? (
-            <img src={photoUrl} alt="Facture" className="max-h-80 w-full bg-white object-contain" />
-          ) : (
-            <InvoiceThumbnail photoPath={invoice.photo_path} size={200} />
-          )}
-        </div>
-      )}
+      <InvoicePhoto photoPath={invoice.photo_path} className="mb-3" />
 
-      {isOfflineInvoiceId(invoice.id) && (
-        <Card className="mb-4 border-cyan-200 bg-cyan-50 text-sm text-cyan-900">
-          Enregistré sur cet appareil. Envoi automatique au cloud dès que le réseau reviendra. Les totaux
-          du tableau de bord n’incluent pas encore cette facture.
-        </Card>
-      )}
-
-      {extraNotes ? (
-        <Card className="mb-4 border-red-200 bg-red-50 text-sm text-red-800">{extraNotes}</Card>
-      ) : !isOfflineInvoiceId(invoice.id) ? (
-        <Card className="mb-4 border-blue-200 bg-blue-50 text-sm text-blue-800">
-          OCR {provider === 'tesseract.js' ? 'Tesseract.js' : provider}
-          {conf != null && ` — confiance ${Math.round(conf * 100)}%`}. Vérifiez les champs.
-        </Card>
+      {invoice.notes ? (
+        <Notice tone="warning" className="mb-3">
+          {invoice.notes}
+        </Notice>
+      ) : conf != null ? (
+        <Notice tone="info" className="mb-3">
+          Lecture automatique, confiance {Math.round(conf * 100)} %. Vérifiez les champs avant de valider.
+        </Notice>
       ) : null}
 
       <form onSubmit={handleValidate} className="space-y-4">
@@ -166,109 +150,87 @@ export default function ValidateInvoicePage() {
             value={supplier}
             onChange={(e) => setSupplier(e.target.value)}
             list="known-suppliers"
-            placeholder="Si le ticket n’a pas de nom, laissez vide"
+            placeholder="Nom du vendeur"
+            hint={!isNamedSupplier(supplier) ? 'Sans nom, le reçu apparaîtra comme « Sans fournisseur ». Vous pourrez le compléter plus tard.' : undefined}
           />
           <datalist id="known-suppliers">
             {knownSuppliers.map((name) => (
               <option key={name} value={name} />
             ))}
           </datalist>
-          {!isNamedSupplier(supplier) && (
-            <p className="text-xs leading-relaxed text-[#64748B]">
-              Vous pouvez valider sans nom. La facture apparaîtra comme « Sans fournisseur ». Vous pourrez
-              compléter le vendeur plus tard. Sans nom, l’optimisation des achats est moins précise.
-            </p>
-          )}
           <div className="grid grid-cols-2 gap-3">
             <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            <Input
-              label="Montant facture (lu par l'IA)"
-              type="number"
-              min={0}
-              value={total}
-              onChange={(e) => setTotal(e.target.value)}
-            />
+            <Input label="Montant du reçu" type="number" inputMode="numeric" min={0} value={total} onChange={(e) => setTotal(e.target.value)} placeholder="0" />
           </div>
           <Input
-            label="Frais de transport / logistique (FCFA)"
+            label="Transport (FCFA, facultatif)"
             type="number"
+            inputMode="numeric"
             min={0}
-            placeholder="Ex. 3000 — taxi, keke, pousse-pousse"
+            placeholder="Ex. : 3000"
             value={transport}
             onChange={(e) => setTransport(e.target.value)}
+            hint="Taxi, moto, pousse-pousse… payé en plus du reçu."
           />
-          <p className="text-xs text-[#64748B]">
-            Payé de main à main, sans ticket à scanner. Laissez vide s’il n’y a pas eu de transport.
-          </p>
-          <div className="rounded-xl bg-[#E2E8F0] px-3 py-2">
-            <p className="text-xs text-[#64748B]">Coût total réel d’approvisionnement</p>
-            <p className="text-lg font-bold text-[#1E3A8A]">
-              {formatFcfa((parseFloat(total) || 0) + (parseFloat(transport) || 0))}
-            </p>
-            {(parseFloat(transport) || 0) > 0 && (
-              <p className="text-xs text-[#64748B]">
-                {formatFcfa(parseFloat(total) || 0)} + {formatFcfa(parseFloat(transport) || 0)} de transport
-              </p>
-            )}
+          <div className="flex items-center justify-between rounded-control bg-surface-2 px-3 py-2.5">
+            <p className="text-[13px] text-muted">Coût total réel</p>
+            <p className="text-[15px] font-semibold text-ink">{formatFcfa(landed)}</p>
           </div>
-          <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <Input label="Remarque (facultatif)" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ex. : livraison partielle" />
         </Card>
 
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold text-sm">Articles extraits</h2>
-          <span className="rounded-full bg-[#E2E8F0] px-2 py-0.5 text-xs font-semibold text-[#1E3A8A]">
-            {items.length} article{items.length > 1 ? 's' : ''}
-          </span>
+        <div>
+          <SectionTitle action={<Badge>{items.length} article{items.length > 1 ? 's' : ''}</Badge>}>Articles</SectionTitle>
+
+          {totalCheck.mismatch && (
+            <Notice
+              tone="warning"
+              title="Écart à vérifier"
+              className="mb-3"
+              action={
+                <button type="button" className="text-[13px] font-semibold text-warning underline underline-offset-2" onClick={() => setTotal(String(totalCheck.linesSum))}>
+                  Utiliser la somme des articles ({formatFcfa(totalCheck.linesSum)})
+                </button>
+              }
+            >
+              Montant du reçu : {formatFcfa(parseFloat(total) || 0)}. Somme des articles : {formatFcfa(totalCheck.linesSum)}.{' '}
+              {totalCheck.gap > 0 ? 'Un article a peut-être été oublié.' : 'Une quantité ou un prix est peut-être mal lu.'}
+            </Notice>
+          )}
+
+          <div className="space-y-3">
+            {items.map((item, i) => (
+              <Card key={i} className="space-y-3">
+                <Input label="Produit" value={item.product_name} onChange={(e) => updateItem(i, 'product_name', e.target.value)} placeholder="Ex. : Sac de riz 50 kg" />
+                <div className="grid grid-cols-3 gap-2">
+                  <Input label="Quantité" type="number" inputMode="decimal" min={0} value={item.quantity} onChange={(e) => updateItem(i, 'quantity', parseFloat(e.target.value) || 0)} />
+                  <Input label="Prix unitaire" type="number" inputMode="numeric" min={0} value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', parseFloat(e.target.value) || 0)} />
+                  <Input label="Total" type="number" value={item.total_price} readOnly />
+                </div>
+                <button type="button" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-danger" onClick={() => removeItem(i)}>
+                  <Trash2 size={15} />
+                  Retirer cet article
+                </button>
+              </Card>
+            ))}
+          </div>
+
+          <Button type="button" variant="secondary" fullWidth className="mt-3" onClick={addItem}>
+            <Plus size={18} />
+            Ajouter un article
+          </Button>
         </div>
 
-        {totalCheck.mismatch && (
-          <div className="rounded-2xl border border-[#F0DFBE] bg-gradient-to-br from-[#FEF7EC] to-[#F7ECD8] p-3 shadow-neo-card-subtle">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#D97706] shadow-[0_0_6px_#F59E0B]" />
-              <p className="text-xs font-bold uppercase tracking-wider text-[#92400E]">Écart à vérifier</p>
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-[#78350F]">
-              Total lu sur le reçu : <strong>{formatFcfa(parseFloat(total) || 0)}</strong> · somme des articles :{' '}
-              <strong>{formatFcfa(totalCheck.linesSum)}</strong> ({totalCheck.gap > 0 ? '+' : '−'}
-              {formatFcfa(Math.abs(totalCheck.gap))}).{' '}
-              {totalCheck.gap > 0
-                ? 'Un article a peut-être été oublié par l’IA.'
-                : 'Une quantité ou un prix est peut-être mal lu.'}
-            </p>
-            <button
-              type="button"
-              className="mt-2 text-xs font-bold text-[#B45309] underline"
-              onClick={() => setTotal(String(totalCheck.linesSum))}
-            >
-              Utiliser la somme des articles comme total
-            </button>
-          </div>
-        )}
+        {error && <Notice tone="danger">{error}</Notice>}
 
-        {items.map((item, i) => (
-          <Card key={i} className="space-y-2">
-            <Input label="Produit" value={item.product_name} onChange={(e) => updateItem(i, 'product_name', e.target.value)} />
-            <div className="grid grid-cols-3 gap-2">
-              <Input label="Qté" type="number" value={item.quantity} onChange={(e) => updateItem(i, 'quantity', parseFloat(e.target.value) || 0)} />
-              <Input label="P.U." type="number" value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', parseFloat(e.target.value) || 0)} />
-              <Input label="Total" type="number" value={item.total_price} readOnly />
-            </div>
-            <button type="button" className="text-xs text-red-600" onClick={() => removeItem(i)}>
-              Supprimer la ligne
-            </button>
-          </Card>
-        ))}
-
-        <Button type="button" variant="secondary" fullWidth onClick={addItem}>
-          + Ajouter une ligne
-        </Button>
-
-        <Button type="submit" fullWidth disabled={saving}>
-          {saving ? 'Enregistrement…' : 'Enregistrer et valider'}
-        </Button>
-        <Button type="button" variant="secondary" fullWidth onClick={handleReject}>
-          Rejeter la facture
-        </Button>
+        <div className="space-y-2 pt-2">
+          <Button type="submit" fullWidth size="lg" loading={saving}>
+            Valider ce reçu
+          </Button>
+          <Button type="button" variant="ghost" fullWidth onClick={handleReject}>
+            Rejeter
+          </Button>
+        </div>
       </form>
     </AppLayout>
   );

@@ -1,30 +1,17 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { ChevronLeft } from 'lucide-react';
 import { BottomNav } from './BottomNav';
-import { useAuth } from '../../context/AuthContext';
 
-export function AppLayout({
-  children,
-  hideNav = false,
-}: {
-  children: ReactNode;
-  hideNav?: boolean;
-}) {
-  const { isLocalDemo } = useAuth();
-
+/**
+ * Coque de l'application : colonne centrée façon téléphone, fond gris,
+ * contenu blanc, navigation basse.
+ */
+export function AppLayout({ children, hideNav = false }: { children: ReactNode; hideNav?: boolean }) {
   return (
-    <div className="min-h-dvh">
-      <div className="mx-auto flex min-h-dvh w-full max-w-[440px] flex-col border-x border-[#CBD5E1] bg-gradient-to-b from-[#E2E8F0] via-[#DCE5EF] to-[#D5DFEC] shadow-2xl">
-        {isLocalDemo && (
-          <aside className="relative w-full overflow-hidden border-b border-[#1E293B] bg-[#0F172A] px-3 py-2.5 text-center text-[11px] font-medium tracking-wide text-[#E2E8F0]">
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent" />
-            <span className="inline-flex items-center gap-2 opacity-95">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#06B6D4] shadow-[0_0_8px_#06B6D4]" />
-              Mode démo local — données fictives (Supabase non requis)
-            </span>
-          </aside>
-        )}
-        <main className={`flex-1 px-5 pt-4 ${hideNav ? 'pb-4' : 'pb-28'}`}>
+    <div className="min-h-dvh bg-bg">
+      <div className="relative mx-auto flex min-h-dvh w-full max-w-[440px] flex-col bg-bg sm:border-x sm:border-line">
+        <main className={`flex-1 px-4 pt-3 ${hideNav ? 'pb-6' : 'pb-[calc(var(--nav-height)+env(safe-area-inset-bottom,0px)+16px)]'}`}>
           {children}
         </main>
         {!hideNav && <BottomNav />}
@@ -36,25 +23,31 @@ export function AppLayout({
 export function AppHeader({
   title,
   backTo,
+  action,
+  subtitle,
 }: {
   title: string;
   backTo?: string;
+  action?: ReactNode;
+  subtitle?: string;
 }) {
   return (
-    <header className="sticky top-0 z-40 -mx-5 mb-4 border-b border-white/70 bg-[#E2E8F0]/90 px-5 backdrop-blur-md">
-      <div className="flex h-14 items-center gap-3">
-        {backTo && (
+    <header className="sticky top-0 z-40 -mx-4 mb-3 border-b border-line bg-bg/95 px-4 backdrop-blur">
+      <div className="flex h-14 items-center gap-2">
+        {backTo ? (
           <Link
             to={backTo}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/70 bg-[#E2E8F0] text-[#1E3A8A] shadow-neo-card-subtle"
+            aria-label="Retour"
+            className="-ml-2 flex h-10 w-10 items-center justify-center rounded-full text-ink hover:bg-surface"
           >
-            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft size={22} />
           </Link>
-        )}
-        <h1 className="flex-1 text-center text-base font-bold tracking-tight text-[#0F172A]">{title}</h1>
-        {backTo && <div className="w-10" />}
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-[17px] font-semibold leading-tight text-ink">{title}</h1>
+          {subtitle && <p className="truncate text-xs text-muted">{subtitle}</p>}
+        </div>
+        {action}
       </div>
     </header>
   );

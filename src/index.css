@@ -1,66 +1,65 @@
 @import 'tailwindcss';
 
+/*
+  Système visuel efacture — volontairement sobre :
+  une couleur d'accent (bleu), des surfaces blanches sur fond gris clair,
+  des bordures fines, des ombres discrètes, pas de dégradés décoratifs.
+*/
 @theme {
-  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
-  --font-display: 'Space Grotesk', sans-serif;
-  --font-editorial: 'Newsreader', Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --color-mineral: #cbd5e1;
-  --color-mineral-light: #e2e8f0;
-  --color-navy: #0f172a;
-  --color-sapphire: #1e3a8a;
-  --color-sapphire-deep: #172554;
-  --color-electric: #2563eb;
-  --color-aqua: #06b6d4;
-  --color-mint: #10b981;
-  --color-amber-deep: #d97706;
-  --color-amber-glow: #f59e0b;
-  --color-frost: #64748b;
+  --color-bg: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-surface-2: #f9fafb;
+  --color-line: #e5e7eb;
+  --color-line-strong: #d1d5db;
 
-  --shadow-neo-card: 8px 8px 18px rgba(148, 163, 184, 0.45),
-    -6px -6px 14px rgba(255, 255, 255, 0.85),
-    inset 0 1px 1px rgba(255, 255, 255, 0.9);
-  --shadow-neo-card-subtle: 5px 5px 14px rgba(148, 163, 184, 0.35),
-    -4px -4px 10px rgba(255, 255, 255, 0.8),
-    inset 0 1px 1px rgba(255, 255, 255, 0.7);
-  --shadow-neo-inset: inset 2px 2px 5px rgba(148, 163, 184, 0.4),
-    inset -2px -2px 5px rgba(255, 255, 255, 0.8);
-  --shadow-sapphire-depth: 0 16px 32px -8px rgba(15, 23, 42, 0.45),
-    0 4px 12px rgba(30, 58, 138, 0.25),
-    inset 0 1px 1px rgba(255, 255, 255, 0.2);
-  --shadow-btn-electric: 0 10px 24px -4px rgba(37, 99, 235, 0.45),
-    0 4px 10px rgba(6, 182, 212, 0.35),
-    inset 0 1px 1px rgba(255, 255, 255, 0.4);
-  --shadow-floating-cam: 0 10px 22px -3px rgba(30, 58, 138, 0.5),
-    inset 0 1px 2px rgba(255, 255, 255, 0.5);
-  --shadow-nav-neo: 0 -8px 24px rgba(148, 163, 184, 0.3),
-    inset 0 1px 1px rgba(255, 255, 255, 0.8);
+  --color-ink: #111827;
+  --color-ink-2: #374151;
+  --color-muted: #6b7280;
+  --color-faint: #9ca3af;
+
+  --color-primary: #2563eb;
+  --color-primary-strong: #1d4ed8;
+  --color-primary-soft: #eff4ff;
+  --color-primary-ink: #1e3a8a;
+
+  --color-success: #15803d;
+  --color-success-soft: #ecfdf3;
+  --color-warning: #b45309;
+  --color-warning-soft: #fff7ed;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fef2f2;
+
+  --radius-card: 14px;
+  --radius-control: 12px;
+
+  --shadow-card: 0 1px 2px rgba(17, 24, 39, 0.05);
+  --shadow-float: 0 8px 24px -8px rgba(17, 24, 39, 0.25);
 }
 
 :root {
-  --brand: #1e3a8a;
-  --brand-dark: #0f172a;
-  --brand-light: #e2e8f0;
-  --bg: #cbd5e1;
-  --surface: #eef2f6;
-  --text: #0f172a;
-  --text-muted: #64748b;
-  --border: #cbd5e1;
-  --nav-height: 72px;
+  --nav-height: 64px;
   --header-height: 56px;
+  color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  background: var(--color-bg);
+}
+
 body {
   margin: 0;
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-  background: linear-gradient(135deg, #cbd5e1 0%, #d5dde8 50%, #c2cad6 100%);
-  color: var(--text);
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
 }
 
 #root {
@@ -72,4 +71,41 @@ select,
 textarea,
 button {
   font-family: inherit;
+  font-size: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* Champs numériques sans les flèches (saisie au clavier sur mobile) */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Focus visible uniforme */
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Masquer la barre de défilement des listes horizontales */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

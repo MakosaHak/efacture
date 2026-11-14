@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Camera, ImagePlus, ScanLine, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
-import {
-  canRunOcr,
-  compressFile,
-  isMobileDevice,
-  ocrMaxSide,
-  OCR_SOURCE_QUALITY,
-} from '../lib/ocr/image-utils';
+import { canRunOcr, compressFile, isMobileDevice, ocrMaxSide, OCR_SOURCE_QUALITY } from '../lib/ocr/image-utils';
 import { runOcrOnFile } from '../lib/ocr/tesseract-runner';
 import { parseReceiptText } from '../lib/ocr/ocr-parser';
 import { saveScannedInvoice } from '../lib/invoices';
-import { isOfflineInvoiceId } from '../lib/offline/queue';
 
 type Screen = 'idle' | 'camera' | 'preview' | 'loading';
 
@@ -28,7 +22,7 @@ export default function ScannerPage() {
   const [screen, setScreen] = useState<Screen>('idle');
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [toast, setToast] = useState('');
+  const [message, setMessage] = useState('');
   const [progress, setProgress] = useState('');
   const mobile = isMobileDevice();
 
@@ -45,10 +39,13 @@ export default function ScannerPage() {
     }
   }, []);
 
-  useEffect(() => () => {
-    stopStream();
-    revokePreview();
-  }, [stopStream, revokePreview]);
+  useEffect(
+    () => () => {
+      stopStream();
+      revokePreview();
+    },
+    [stopStream, revokePreview],
+  );
 
   const showPreview = (file: File) => {
     revokePreview();
@@ -60,18 +57,16 @@ export default function ScannerPage() {
   };
 
   const handleImport = async (file: File) => {
-    setToast('');
+    setMessage('');
     stopStream();
     setProgress('Préparation de la photo…');
     setScreen('loading');
-    // Laisse le spinner s'afficher avant le décodage (sinon l'UI reste figée).
     await new Promise((r) => setTimeout(r, 50));
     try {
-      // Assez de pixels pour que l'OCR lise les chiffres (la photo stockée sera réduite ensuite).
       const optimized = await compressFile(file, ocrMaxSide(), OCR_SOURCE_QUALITY);
       showPreview(optimized);
     } catch {
-      setToast('Photo trop lourde. Choisis une image plus légère dans la galerie.');
+      setMessage('Photo trop lourde. Choisissez une image plus légère.');
       setScreen('idle');
     }
   };
@@ -84,14 +79,12 @@ export default function ScannerPage() {
     setScreen('idle');
   };
 
-  /** Caméra dans l'app : HD (assez pour l'OCR) sans charger une photo 12 MP en mémoire. */
   const openCamera = async () => {
-    setToast('');
+    setMessage('');
     if (!navigator.mediaDevices?.getUserMedia) {
-      setToast('Caméra non disponible. Importe une photo depuis la galerie.');
+      setMessage('Caméra non disponible ici. Importez une photo depuis la galerie.');
       return;
     }
-
     setScreen('camera');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -109,7 +102,7 @@ export default function ScannerPage() {
       }
     } catch {
       setScreen('idle');
-      setToast('Impossible d\'ouvrir la caméra. Utilise « importer une photo ».');
+      setMessage('Impossible d’ouvrir la caméra. Importez une photo depuis la galerie.');
     }
   };
 
@@ -117,7 +110,6 @@ export default function ScannerPage() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video?.videoWidth || !canvas) return;
-
     const maxDim = ocrMaxSide();
     const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
@@ -125,102 +117,80 @@ export default function ScannerPage() {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
     canvas.toBlob(
       (blob) => {
         if (!blob) {
-          setToast('Capture échouée. Réessaie.');
+          setMessage('La capture a échoué. Réessayez.');
           return;
         }
         stopStream();
         canvas.width = 0;
         canvas.height = 0;
-        showPreview(new File([blob], 'facture.jpg', { type: 'image/jpeg' }));
+        showPreview(new File([blob], 'recu.jpg', { type: 'image/jpeg' }));
       },
       'image/jpeg',
       OCR_SOURCE_QUALITY,
     );
   };
 
-  const upload = async () => {
+  const analyze = async () => {
     if (!capturedFile || !user) return;
     setScreen('loading');
     setProgress('Préparation…');
-
     const source = capturedFile;
-
     try {
       revokePreview();
       setPreviewUrl(null);
-
-      // L'OCR lit la photo haute résolution ; seule une version allégée est stockée.
       let ocr = parseReceiptText('', 0);
       if (canRunOcr()) {
-        setProgress('Lecture de la facture…');
-        ocr = await runOcrOnFile(source, (p) => {
-          setProgress(`Lecture de la facture… ${Math.round(p * 100)} %`);
-        });
+        setProgress('Lecture du reçu…');
+        ocr = await runOcrOnFile(source, (p) => setProgress(`Lecture du reçu… ${Math.round(p * 100)} %`));
       }
-
-      setProgress('Enregistrement…');
+      setProgress('Enregistrement sur l’appareil…');
       const stored = await compressFile(source, mobile ? 1280 : 1600, 0.8);
       const invoiceId = await saveScannedInvoice(user.id, stored, ocr);
-      if (isOfflineInvoiceId(invoiceId)) {
-        setProgress('Enregistré sur l’appareil…');
-      }
-      navigate(`/factures/${invoiceId}/valider`, {
-        state: { queued: isOfflineInvoiceId(invoiceId) },
-      });
+      navigate(`/factures/${invoiceId}/valider`);
     } catch (err) {
       showPreview(source);
-      const msg = err instanceof Error ? err.message : 'Erreur d\'envoi';
-      setToast(
-        /memor|mémoir|memory|quota/i.test(msg)
-          ? 'Mémoire insuffisante. Importe une photo plus légère depuis la galerie.'
-          : msg,
-      );
+      const msg = err instanceof Error ? err.message : 'Enregistrement impossible';
+      setMessage(/memor|mémoir|memory|quota/i.test(msg) ? 'Mémoire insuffisante. Importez une photo plus légère.' : msg);
     }
   };
 
+  const iconButton =
+    'flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20';
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#0F172A] text-white">
-      <header className="relative z-20 flex shrink-0 items-center justify-between px-4 py-3">
-        <Link to="/" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
-          ✕
+    <div className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#0b0f14] text-white">
+      <header className="flex shrink-0 items-center justify-between px-4 pt-[max(12px,env(safe-area-inset-top))] pb-3">
+        <Link to="/" className={iconButton} aria-label="Fermer">
+          <X size={20} />
         </Link>
-        <div className="text-center">
-          <p className="font-bold">E-Facture</p>
-          <p className="text-[10px] tracking-widest text-white/60">SCANNER</p>
-        </div>
-        <button
-          type="button"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10"
-          onClick={() => fileRef.current?.click()}
-        >
-          🖼
+        <p className="text-sm font-semibold">Scanner un reçu</p>
+        <button type="button" className={iconButton} onClick={() => fileRef.current?.click()} aria-label="Importer une photo">
+          <ImagePlus size={20} />
         </button>
       </header>
 
-      {toast && (
-        <div className="mx-4 rounded-lg bg-red-500/90 px-3 py-2 text-sm">{toast}</div>
+      {message && (
+        <div className="mx-4 mb-2 rounded-control bg-white/10 px-3 py-2 text-[13px] text-white">{message}</div>
       )}
 
       {screen === 'idle' && (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl border border-cyan-400/40 bg-gradient-to-tr from-[#0F172A] via-[#1E3A8A] to-[#2563EB] text-4xl shadow-floating-cam">🧾</div>
-          <h2 className="mb-2 text-xl font-bold">Numérisez votre facture</h2>
-          <p className="mb-8 text-sm text-white/70">
-            Pour une bonne lecture : facture à plat, bien éclairée, sans ombre, et qui remplit l’écran.
+        <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-white/10">
+            <ScanLine size={36} />
+          </div>
+          <h2 className="mb-2 text-xl font-semibold">Photographiez le reçu</h2>
+          <p className="mb-8 text-sm leading-relaxed text-white/65">
+            Posez-le à plat, dans un endroit bien éclairé, et cadrez-le en entier. Les montants seront lus automatiquement.
           </p>
-          <Button fullWidth onClick={openCamera} className="mb-3 max-w-xs">
+          <Button fullWidth size="lg" onClick={openCamera} className="mb-3 max-w-xs">
+            <Camera size={20} />
             Ouvrir la caméra
           </Button>
-          <button
-            type="button"
-            className="text-sm text-white/60 underline"
-            onClick={() => fileRef.current?.click()}
-          >
-            ou importer une photo existante
+          <button type="button" className="text-sm font-medium text-white/70 underline-offset-4 hover:underline" onClick={() => fileRef.current?.click()}>
+            Importer une photo existante
           </button>
         </div>
       )}
@@ -229,14 +199,15 @@ export default function ScannerPage() {
         <div className="relative flex-1">
           <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
           <canvas ref={canvasRef} className="hidden" />
-          <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-8">
-            <Link to="/" className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20">
-              ✕
-            </Link>
+          <div className="pointer-events-none absolute inset-x-8 top-1/2 aspect-[3/4] max-h-[70%] -translate-y-1/2 rounded-2xl border-2 border-white/60" />
+          <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-10 bg-gradient-to-t from-black/70 to-transparent px-6 pb-[max(28px,env(safe-area-inset-bottom))] pt-16">
+            <button type="button" onClick={resetToIdle} className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15" aria-label="Annuler">
+              <X size={22} />
+            </button>
             <button
               type="button"
               onClick={capture}
-              className="h-16 w-16 rounded-full border-4 border-white bg-white/30"
+              className="h-[72px] w-[72px] rounded-full border-[5px] border-white bg-white/20 transition-transform active:scale-95"
               aria-label="Prendre la photo"
             />
             <button
@@ -245,9 +216,10 @@ export default function ScannerPage() {
                 stopStream();
                 fileRef.current?.click();
               }}
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20"
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15"
+              aria-label="Importer une photo"
             >
-              🖼
+              <ImagePlus size={22} />
             </button>
           </div>
         </div>
@@ -255,21 +227,12 @@ export default function ScannerPage() {
 
       {screen === 'preview' && previewUrl && (
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <img
-            src={previewUrl}
-            alt="Aperçu"
-            className="absolute inset-0 h-full w-full object-contain"
-          />
-          <div className="absolute inset-x-0 bottom-0 z-20 flex gap-3 bg-gradient-to-t from-black via-black/90 to-transparent p-4 pt-10 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <Button
-              variant="secondary"
-              fullWidth
-              className="border-white/40 bg-white/10 text-white hover:bg-white/20"
-              onClick={resetToIdle}
-            >
-              Changer
+          <img src={previewUrl} alt="Aperçu du reçu" className="absolute inset-0 h-full w-full object-contain" />
+          <div className="absolute inset-x-0 bottom-0 flex gap-3 bg-gradient-to-t from-black via-black/85 to-transparent p-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-12">
+            <Button variant="secondary" fullWidth size="lg" className="border-white/20 bg-white/10 text-white hover:bg-white/20" onClick={resetToIdle}>
+              Reprendre
             </Button>
-            <Button fullWidth onClick={upload}>
+            <Button fullWidth size="lg" onClick={analyze}>
               {canRunOcr() ? 'Analyser' : 'Enregistrer'}
             </Button>
           </div>
@@ -278,8 +241,8 @@ export default function ScannerPage() {
 
       {screen === 'loading' && (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#2563EB] border-t-transparent" />
-          <p>{progress || 'Analyse en cours…'}</p>
+          <div className="h-10 w-10 rounded-full border-[3px] border-white/20 border-t-white" style={{ animation: 'spin 0.8s linear infinite' }} />
+          <p className="text-sm text-white/80">{progress || 'Analyse en cours…'}</p>
         </div>
       )}
 

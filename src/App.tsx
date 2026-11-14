@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { PwaUpdateToast } from './components/pwa/PwaUpdateToast';
-import { OfflineSync } from './components/pwa/OfflineSync';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
@@ -21,7 +20,6 @@ export default function App() {
   return (
     <AuthProvider>
       <PwaUpdateToast />
-      <OfflineSync />
       <Routes>
         <Route path="/auth/connexion" element={<LoginPage />} />
         <Route path="/auth/inscription" element={<RegisterPage />} />

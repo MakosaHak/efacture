@@ -1,29 +1,26 @@
-import { supabase } from './supabase';
-import { isDemoMode } from './demo/demo-mode';
-import * as demo from './demo/demo-store';
+/**
+ * Factures : lecture/écriture dans la base locale (IndexedDB) et calculs
+ * d'analyse (dépenses, prix, prévisions, optimisation) à partir des factures
+ * validées du compte.
+ */
+import {
+  getInvoice as repoGetInvoice,
+  getPhotoBlob,
+  listInvoices,
+  listValidatedInvoices,
+  putInvoice,
+  putPhoto,
+  removeInvoice,
+  removePhoto,
+} from './db/repo';
 import { fitLinearNext, formatMonthLong, mean, monthlyGrowthRate, nextMonthLabel, slopeToMonthlyPct } from './predict';
 import { allocateTransport, invoiceLandedTotal, transportFeeOf } from './landed-cost';
 import { displaySupplier, isNamedSupplier, normalizeSupplierName, UNKNOWN_SUPPLIER } from './supplier';
 import { preparePriceSuggestions } from './productPrices';
-import {
-  countOfflineScans,
-  deleteOfflineScan,
-  enqueueOfflineScan,
-  getOfflineScan,
-  isNetworkFailure,
-  isOfflineInvoiceId,
-  isOfflinePhotoPath,
-  listOfflineScans,
-  offlinePhotoId,
-  offlineRecordId,
-  putOfflineScan,
-  scanToInvoice,
-} from './offline/queue';
 import type {
   Invoice,
   InvoiceItem,
   MonthlyKpis,
-  OCRRawData,
   OCRResult,
   SpendingTotals,
   PriceAlert,
@@ -37,122 +34,72 @@ import type {
   TopProduct,
 } from '../types/invoice';
 
+/* ------------------------------------------------------------------ */
+/* Photos                                                              */
+/* ------------------------------------------------------------------ */
+
+/** URL d'objet vers la photo locale. L'appelant la révoque quand il n'en a plus besoin. */
 export async function getPhotoUrl(path: string): Promise<string | null> {
   if (!path) return null;
-  if (isOfflinePhotoPath(path)) {
-    const scan = await getOfflineScan(offlinePhotoId(path));
-    if (!scan?.photo) return null;
-    return URL.createObjectURL(scan.photo);
-  }
-  if (isDemoMode()) return demo.demoGetPhotoUrl(path);
-  const { data } = await supabase.storage.from('invoice-photos').createSignedUrl(path, 3600);
-  return data?.signedUrl ?? null;
+  const blob = await getPhotoBlob(path);
+  return blob ? URL.createObjectURL(blob) : null;
 }
 
-export async function fetchInvoices(search = '', status = '', userId = ''): Promise<Invoice[]> {
-  if (isDemoMode()) return demo.demoFetchInvoices(search, status);
+/* ------------------------------------------------------------------ */
+/* CRUD                                                                */
+/* ------------------------------------------------------------------ */
 
-  let cloud: Invoice[] = [];
-  try {
-    let query = supabase
-      .from('invoices')
-      .select('*, invoice_items(*)')
-      .order('created_at', { ascending: false });
-
-    if (status) query = query.eq('status', status);
-    if (search) query = query.ilike('supplier_name_raw', `%${search}%`);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    cloud = (data as Invoice[]) || [];
-  } catch {
-    cloud = [];
-  }
-
-  const local = userId
-    ? (await listOfflineScans(userId))
-        .filter((s) => s.status !== 'rejected')
-        .map(scanToInvoice)
-    : [];
-  let merged = [...local, ...cloud];
-  if (status) merged = merged.filter((i) => i.status === status);
+export async function fetchInvoices(ownerId: string, search = '', status = ''): Promise<Invoice[]> {
+  let list = await listInvoices(ownerId);
+  if (status) list = list.filter((i) => i.status === status);
   if (search) {
     const q = search.toLowerCase();
-    merged = merged.filter((i) =>
-      `${i.supplier_name_raw} ${i.notes}`.toLowerCase().includes(q) || i.id.toLowerCase().includes(q),
+    list = list.filter(
+      (i) =>
+        displaySupplier(i.supplier_name_raw).toLowerCase().includes(q) ||
+        (i.invoice_items || []).some((it) => it.product_name.toLowerCase().includes(q)) ||
+        i.notes.toLowerCase().includes(q),
     );
   }
-  return merged;
+  return list;
 }
 
 export async function fetchInvoice(id: string): Promise<Invoice | null> {
-  if (isOfflineInvoiceId(id)) {
-    const scan = await getOfflineScan(offlineRecordId(id));
-    return scan ? scanToInvoice(scan) : null;
-  }
-  if (isDemoMode()) return demo.demoFetchInvoice(id);
-  const { data, error } = await supabase
-    .from('invoices')
-    .select('*, invoice_items(*)')
-    .eq('id', id)
-    .single();
-  if (error) throw error;
-  return data as Invoice;
+  return (await repoGetInvoice(id)) ?? null;
 }
 
-export async function saveScannedInvoice(userId: string, file: File, ocr: OCRResult): Promise<string> {
-  if (isDemoMode()) return demo.demoSaveScannedInvoice(userId, file, ocr);
+export async function saveScannedInvoice(ownerId: string, file: Blob, ocr: OCRResult): Promise<string> {
+  const invoiceId = crypto.randomUUID();
+  const photo_path = await putPhoto(`${ownerId}-${invoiceId}`, file);
+  const now = new Date().toISOString();
 
-  const persistCloud = async (): Promise<string> => {
-    const invoiceId = crypto.randomUUID();
-    const { error: uploadErr } = await supabase.storage
-      .from('invoice-photos')
-      .upload(`${userId}/${invoiceId}.jpg`, file, { contentType: 'image/jpeg', upsert: true });
-    if (uploadErr) throw uploadErr;
+  const items: InvoiceItem[] = ocr.items.map((item, idx) => ({
+    id: `${invoiceId}-${idx}`,
+    invoice_id: invoiceId,
+    product_name: item.product_name,
+    quantity: parseFloat(item.quantity) || 1,
+    unit: item.unit || 'pièce',
+    unit_price: parseFloat(item.unit_price) || 0,
+    total_price: parseFloat(item.total_price) || 0,
+  }));
 
-    const { error: invErr } = await supabase.from('invoices').insert({
-      id: invoiceId,
-      owner_id: userId,
-      supplier_name_raw: normalizeSupplierName(ocr.supplier_name),
-      invoice_date: ocr.invoice_date || null,
-      total_amount: parseFloat(ocr.total_amount) || 0,
-      photo_path: `${userId}/${invoiceId}.jpg`,
-      status: 'pending',
-      ocr_raw_data: {
-        provider: ocr.provider,
-        confidence: ocr.confidence,
-        raw_text: ocr.raw_text,
-        transport_fee: 0,
-      },
-      notes: ocr.confidence < 0.3 ? 'OCR faible — vérifiez les champs.' : '',
-    });
-    if (invErr) throw invErr;
-
-    if (ocr.items.length > 0) {
-      const rows = ocr.items.map((item) => ({
-        invoice_id: invoiceId,
-        product_name: item.product_name,
-        quantity: parseFloat(item.quantity) || 1,
-        unit: item.unit || 'pièce',
-        unit_price: parseFloat(item.unit_price) || 0,
-        total_price: parseFloat(item.total_price) || 0,
-      }));
-      const { error: itemsErr } = await supabase.from('invoice_items').insert(rows);
-      if (itemsErr) throw itemsErr;
-    }
-    return invoiceId;
-  };
-
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return enqueueOfflineScan(userId, file, ocr);
-  }
-
-  try {
-    return await persistCloud();
-  } catch (err) {
-    if (isNetworkFailure(err)) return enqueueOfflineScan(userId, file, ocr);
-    throw err;
-  }
+  await putInvoice({
+    id: invoiceId,
+    owner_id: ownerId,
+    supplier_id: null,
+    supplier_name_raw: normalizeSupplierName(ocr.supplier_name),
+    invoice_date: ocr.invoice_date || null,
+    total_amount: parseFloat(ocr.total_amount) || 0,
+    transport_fee: 0,
+    photo_path,
+    status: 'pending',
+    ocr_raw_data: { provider: ocr.provider, confidence: ocr.confidence, raw_text: ocr.raw_text, transport_fee: 0 },
+    notes: ocr.confidence < 0.3 ? 'Lecture incertaine, vérifiez les champs.' : '',
+    created_at: now,
+    updated_at: now,
+    invoice_items: items,
+  });
+  return invoiceId;
 }
 
 export async function validateInvoice(
@@ -166,440 +113,129 @@ export async function validateInvoice(
     items: InvoiceItem[];
   },
 ): Promise<void> {
-  const supplierName = normalizeSupplierName(data.supplier_name_raw);
-  const transport_fee = Math.max(0, Number(data.transport_fee) || 0);
-  const payload = { ...data, supplier_name_raw: supplierName, transport_fee };
-
-  if (isOfflineInvoiceId(invoiceId)) {
-    const scan = await getOfflineScan(offlineRecordId(invoiceId));
-    if (!scan) throw new Error('Facture introuvable');
-    await putOfflineScan({
-      ...scan,
-      supplier_name_raw: supplierName,
-      invoice_date: data.invoice_date,
-      total_amount: data.total_amount,
-      transport_fee,
-      notes: data.notes || 'Hors-ligne — sera envoyé dès que le réseau reviendra.',
-      items: data.items.map((item, i) => ({ ...item, id: item.id || `off-${i}` })),
-      status: 'validated',
-    });
-    return;
-  }
-
-  if (isDemoMode()) {
-    demo.demoValidateInvoice(invoiceId, payload);
-    await preparePricesInBackground(invoiceId);
-    return;
-  }
-  const { data: existing } = await supabase
-    .from('invoices')
-    .select('owner_id, ocr_raw_data')
-    .eq('id', invoiceId)
-    .single();
+  const existing = await repoGetInvoice(invoiceId);
   if (!existing) throw new Error('Facture introuvable');
-
-  const supplier_id = await upsertSupplierId(existing.owner_id, supplierName);
-
-  const ocr_raw_data = {
-    ...((existing.ocr_raw_data as Record<string, unknown>) || {}),
-    transport_fee,
-  };
-
-  const patch: Record<string, unknown> = {
-    supplier_name_raw: supplierName,
-    supplier_id,
+  const transport_fee = Math.max(0, Number(data.transport_fee) || 0);
+  const next: Invoice = {
+    ...existing,
+    supplier_name_raw: normalizeSupplierName(data.supplier_name_raw),
     invoice_date: data.invoice_date,
-    total_amount: data.total_amount,
+    total_amount: Number(data.total_amount) || 0,
     transport_fee,
-    ocr_raw_data,
+    ocr_raw_data: { ...existing.ocr_raw_data, transport_fee },
     notes: data.notes,
     status: 'validated',
+    updated_at: new Date().toISOString(),
+    invoice_items: data.items.map((item, i) => ({
+      ...item,
+      id: item.id || `${invoiceId}-${i}`,
+      invoice_id: invoiceId,
+      total_price: item.total_price || item.quantity * item.unit_price,
+    })),
   };
-
-  const { error } = await supabase.from('invoices').update(patch).eq('id', invoiceId);
-  if (error) {
-    const { transport_fee: _drop, ...rest } = patch;
-    const { error: retry } = await supabase.from('invoices').update(rest).eq('id', invoiceId);
-    if (retry) throw retry;
-  }
-
-  await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId);
-  await insertInvoiceItems(invoiceId, data.items);
-  await preparePricesInBackground(invoiceId);
-}
-
-/**
- * Prix de vente suggérés : préparés après la validation, traités plus tard dans l'écran
- * « Prix de vente ». Une erreur ici (ex. migration 005 absente) ne doit pas bloquer la validation.
- */
-async function preparePricesInBackground(invoiceId: string): Promise<void> {
+  await putInvoice(next);
   try {
-    await preparePriceSuggestions(invoiceId);
+    await preparePriceSuggestions(existing.owner_id, invoiceId);
   } catch (err) {
     console.warn('Prix de vente suggérés non préparés :', err);
   }
 }
 
-async function insertInvoiceItems(invoiceId: string, items: InvoiceItem[]): Promise<void> {
-  if (!items.length) return;
-  const { error } = await supabase.from('invoice_items').insert(
-    items.map((item) => ({
-      invoice_id: invoiceId,
-      product_name: item.product_name,
-      quantity: item.quantity,
-      unit: item.unit,
-      unit_price: item.unit_price,
-      total_price: item.total_price || item.quantity * item.unit_price,
-    })),
-  );
-  if (error) throw error;
-}
-
 export async function updateInvoiceSupplier(invoiceId: string, supplierNameRaw: string): Promise<void> {
-  const supplierName = normalizeSupplierName(supplierNameRaw);
-  if (isOfflineInvoiceId(invoiceId)) {
-    const scan = await getOfflineScan(offlineRecordId(invoiceId));
-    if (!scan) throw new Error('Facture introuvable');
-    await putOfflineScan({ ...scan, supplier_name_raw: supplierName });
-    return;
-  }
-  if (isDemoMode()) {
-    demo.demoUpdateInvoiceSupplier(invoiceId, supplierName);
-    return;
-  }
-  const { data: existing } = await supabase.from('invoices').select('owner_id').eq('id', invoiceId).single();
+  const existing = await repoGetInvoice(invoiceId);
   if (!existing) throw new Error('Facture introuvable');
-  const supplier_id = await upsertSupplierId(existing.owner_id, supplierName);
-  await supabase.from('invoices').update({ supplier_name_raw: supplierName, supplier_id }).eq('id', invoiceId);
+  await putInvoice({
+    ...existing,
+    supplier_name_raw: normalizeSupplierName(supplierNameRaw),
+    updated_at: new Date().toISOString(),
+  });
 }
 
-/** Crée (ou retrouve) la fiche fournisseur et renvoie son id pour invoices.supplier_id. */
-async function upsertSupplierId(ownerId: string, name: string): Promise<string | null> {
-  if (!name.trim()) return null;
-  const { data } = await supabase
-    .from('suppliers')
-    .upsert({ owner_id: ownerId, name: name.trim() }, { onConflict: 'owner_id,name' })
-    .select('id')
-    .single();
-  return data?.id ?? null;
-}
-
-export async function getKnownSupplierNames(userId: string): Promise<string[]> {
-  if (isDemoMode()) {
-    const names = new Set<string>();
-    demo.demoGetValidatedInvoices().forEach((inv) => {
-      if (isNamedSupplier(inv.supplier_name_raw)) names.add(inv.supplier_name_raw.trim());
-    });
-    return [...names].sort((a, b) => a.localeCompare(b, 'fr'));
-  }
-  const { data } = await supabase
-    .from('invoices')
-    .select('supplier_name_raw')
-    .eq('owner_id', userId)
-    .eq('status', 'validated');
+export async function getKnownSupplierNames(ownerId: string): Promise<string[]> {
   const names = new Set<string>();
-  (data || []).forEach((row) => {
-    if (isNamedSupplier(row.supplier_name_raw)) names.add(String(row.supplier_name_raw).trim());
+  (await listValidatedInvoices(ownerId)).forEach((inv) => {
+    if (isNamedSupplier(inv.supplier_name_raw)) names.add(inv.supplier_name_raw.trim());
   });
   return [...names].sort((a, b) => a.localeCompare(b, 'fr'));
 }
 
 export async function rejectInvoice(invoiceId: string): Promise<void> {
-  if (isOfflineInvoiceId(invoiceId)) {
-    await deleteOfflineScan(offlineRecordId(invoiceId));
-    return;
-  }
-  if (isDemoMode()) {
-    demo.demoRejectInvoice(invoiceId);
-    return;
-  }
-  await supabase.from('invoices').update({ status: 'rejected' }).eq('id', invoiceId);
+  const existing = await repoGetInvoice(invoiceId);
+  if (!existing) return;
+  await putInvoice({ ...existing, status: 'rejected', updated_at: new Date().toISOString() });
 }
 
 export async function deleteInvoice(invoiceId: string, photoPath: string): Promise<void> {
-  if (isOfflineInvoiceId(invoiceId) || isOfflinePhotoPath(photoPath)) {
-    await deleteOfflineScan(offlineRecordId(invoiceId));
-    return;
-  }
-  if (isDemoMode()) {
-    demo.demoDeleteInvoice(invoiceId, photoPath);
-    return;
-  }
-  if (photoPath) {
-    await supabase.storage.from('invoice-photos').remove([photoPath]);
-  }
-  await supabase.from('invoices').delete().eq('id', invoiceId);
+  if (photoPath) await removePhoto(photoPath);
+  await removeInvoice(invoiceId);
 }
 
-export async function getOfflineQueueCount(userId: string): Promise<number> {
-  if (isDemoMode()) return 0;
-  return countOfflineScans(userId);
-}
-
-export async function flushOfflineQueue(userId: string): Promise<{ ok: number; fail: number }> {
-  if (isDemoMode()) return { ok: 0, fail: 0 };
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    return { ok: 0, fail: 0 };
-  }
-
-  const scans = await listOfflineScans(userId);
-  let ok = 0;
-  let fail = 0;
-
-  for (const scan of scans) {
-    if (scan.status === 'rejected') {
-      await deleteOfflineScan(scan.id);
-      continue;
-    }
-    try {
-      const photoPath = `${userId}/${scan.id}.jpg`;
-      const { error: uploadErr } = await supabase.storage
-        .from('invoice-photos')
-        .upload(photoPath, scan.photo, { contentType: 'image/jpeg', upsert: true });
-      if (uploadErr) throw uploadErr;
-
-      const supplier_id = await upsertSupplierId(userId, scan.supplier_name_raw);
-
-      const { error: invErr } = await supabase.from('invoices').insert({
-        id: scan.id,
-        owner_id: userId,
-        supplier_id,
-        supplier_name_raw: scan.supplier_name_raw,
-        invoice_date: scan.invoice_date,
-        total_amount: scan.total_amount,
-        transport_fee: scan.transport_fee || 0,
-        photo_path: photoPath,
-        status: scan.status,
-        ocr_raw_data: {
-          provider: scan.ocr.provider,
-          confidence: scan.ocr.confidence,
-          raw_text: scan.ocr.raw_text,
-          transport_fee: scan.transport_fee || 0,
-        },
-        notes: scan.notes.replace(/Hors-ligne[^.]*\.\s*/i, '').trim(),
-      });
-      if (invErr) {
-        if (/duplicate|already exists|23505/i.test(invErr.message)) {
-          await deleteOfflineScan(scan.id);
-          ok += 1;
-          continue;
-        }
-        if (/transport_fee/i.test(invErr.message)) {
-          const retry = await supabase.from('invoices').insert({
-            id: scan.id,
-            owner_id: userId,
-            supplier_name_raw: scan.supplier_name_raw,
-            invoice_date: scan.invoice_date,
-            total_amount: scan.total_amount,
-            photo_path: photoPath,
-            status: scan.status,
-            ocr_raw_data: {
-              provider: scan.ocr.provider,
-              confidence: scan.ocr.confidence,
-              raw_text: scan.ocr.raw_text,
-              transport_fee: scan.transport_fee || 0,
-            },
-            notes: scan.notes.replace(/Hors-ligne[^.]*\.\s*/i, '').trim(),
-          });
-          if (retry.error) throw retry.error;
-        } else {
-          throw invErr;
-        }
-      }
-
-      await insertInvoiceItems(scan.id, scan.items);
-      // Facture validée hors ligne : les prix de vente sont préparés une fois synchronisée.
-      if (scan.status === 'validated') await preparePricesInBackground(scan.id);
-
-      await deleteOfflineScan(scan.id);
-      ok += 1;
-    } catch (err) {
-      const lastError = err instanceof Error ? err.message : 'Envoi impossible';
-      await putOfflineScan({ ...scan, lastError });
-      fail += 1;
-    }
-  }
-
-  return { ok, fail };
-}
+/* ------------------------------------------------------------------ */
+/* Indicateurs                                                         */
+/* ------------------------------------------------------------------ */
 
 function startOfMonth(d = new Date()): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
-export async function getMonthlyKpis(userId: string): Promise<MonthlyKpis> {
-  if (isDemoMode()) {
-    const validated = demo.demoGetValidatedInvoices().filter((inv) => {
-      const start = startOfMonth();
-      return new Date(inv.created_at) >= start;
-    });
-    const total = validated.reduce((s, inv) => s + invoiceLandedTotal(inv), 0);
-    return {
-      total_spent: total,
-      invoice_count: validated.length,
-      avg_amount: validated.length ? total / validated.length : 0,
-    };
-  }
-  const start = startOfMonth().toISOString();
-  const { data } = await supabase
-    .from('invoices')
-    .select('total_amount, ocr_raw_data, transport_fee')
-    .eq('owner_id', userId)
-    .eq('status', 'validated')
-    .gte('created_at', start);
-
-  const rows = data || [];
-  const total = rows.reduce((s, r) => s + invoiceLandedTotal(r), 0);
-  return {
-    total_spent: total,
-    invoice_count: rows.length,
-    avg_amount: rows.length ? total / rows.length : 0,
-  };
+export async function getMonthlyKpis(ownerId: string): Promise<MonthlyKpis> {
+  const start = startOfMonth();
+  const rows = (await listValidatedInvoices(ownerId)).filter((inv) => new Date(inv.created_at) >= start);
+  const total = rows.reduce((s, inv) => s + invoiceLandedTotal(inv), 0);
+  return { total_spent: total, invoice_count: rows.length, avg_amount: rows.length ? total / rows.length : 0 };
 }
 
-/** Dépenses (facture + transport) du jour, de la semaine (lundi → aujourd'hui) et du mois en cours. */
-export async function getSpendingTotals(userId: string): Promise<SpendingTotals> {
+/** Dépenses (facture + transport) du jour, de la semaine (lundi → aujourd'hui) et du mois. */
+export async function getSpendingTotals(ownerId: string): Promise<SpendingTotals> {
   const now = new Date();
   const startDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startWeek = new Date(startDay);
   startWeek.setDate(startDay.getDate() - ((startDay.getDay() + 6) % 7));
   const startMonth = startOfMonth(now);
-  const from = startWeek < startMonth ? startWeek : startMonth;
-
-  type Row = { created_at: string; total_amount: number; transport_fee?: number | null; ocr_raw_data?: OCRRawData | null };
-  let rows: Row[];
-  if (isDemoMode()) {
-    rows = demo.demoGetValidatedInvoices().filter((inv) => new Date(inv.created_at) >= from);
-  } else {
-    const { data } = await supabase
-      .from('invoices')
-      .select('created_at, total_amount, ocr_raw_data, transport_fee')
-      .eq('owner_id', userId)
-      .eq('status', 'validated')
-      .gte('created_at', from.toISOString());
-    rows = (data || []) as Row[];
-  }
-
+  const rows = await listValidatedInvoices(ownerId);
   const sumSince = (start: Date) =>
     rows.filter((r) => new Date(r.created_at) >= start).reduce((s, r) => s + invoiceLandedTotal(r), 0);
   return { day: sumSince(startDay), week: sumSince(startWeek), month: sumSince(startMonth) };
 }
 
-export async function getMonthOverMonthChange(userId: string): Promise<number> {
-  if (isDemoMode()) return 12.5;
+export async function getMonthOverMonthChange(ownerId: string): Promise<number> {
   const now = new Date();
   const startCurrent = startOfMonth(now);
   const startPrev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-
-  const { data: current } = await supabase
-    .from('invoices')
-    .select('total_amount, ocr_raw_data, transport_fee')
-    .eq('owner_id', userId)
-    .eq('status', 'validated')
-    .gte('created_at', startCurrent.toISOString());
-
-  const { data: previous } = await supabase
-    .from('invoices')
-    .select('total_amount, ocr_raw_data, transport_fee')
-    .eq('owner_id', userId)
-    .eq('status', 'validated')
-    .gte('created_at', startPrev.toISOString())
-    .lt('created_at', startCurrent.toISOString());
-
-  const cur = (current || []).reduce((s, r) => s + invoiceLandedTotal(r), 0);
-  const prev = (previous || []).reduce((s, r) => s + invoiceLandedTotal(r), 0);
+  const rows = await listValidatedInvoices(ownerId);
+  const cur = rows.filter((r) => new Date(r.created_at) >= startCurrent).reduce((s, r) => s + invoiceLandedTotal(r), 0);
+  const prev = rows
+    .filter((r) => new Date(r.created_at) >= startPrev && new Date(r.created_at) < startCurrent)
+    .reduce((s, r) => s + invoiceLandedTotal(r), 0);
   if (prev <= 0) return cur <= 0 ? 0 : 100;
   return ((cur - prev) / prev) * 100;
 }
 
-export async function getRecentPurchases(userId: string, limit = 5): Promise<Invoice[]> {
-  if (isDemoMode()) {
-    return demo.demoGetValidatedInvoices().slice(0, limit);
-  }
-  let cloud: Invoice[] = [];
-  try {
-    const { data } = await supabase
-      .from('invoices')
-      .select('*, invoice_items(*)')
-      .eq('owner_id', userId)
-      .eq('status', 'validated')
-      .order('created_at', { ascending: false })
-      .limit(limit);
-    cloud = (data as Invoice[]) || [];
-  } catch {
-    cloud = [];
-  }
-  const local = (await listOfflineScans(userId))
-    .filter((s) => s.status === 'validated')
-    .map(scanToInvoice);
-  return [...local, ...cloud]
-    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-    .slice(0, limit);
+export async function getRecentPurchases(ownerId: string, limit = 5): Promise<Invoice[]> {
+  return (await listValidatedInvoices(ownerId)).slice(0, limit);
 }
 
-export async function getValidatedInvoicesForMonth(
-  _userId: string,
-  year: number,
-  month: number,
-): Promise<Invoice[]> {
+export async function getPendingInvoices(ownerId: string): Promise<Invoice[]> {
+  return (await listInvoices(ownerId)).filter((inv) => inv.status === 'pending');
+}
+
+export async function getValidatedInvoicesForMonth(ownerId: string, year: number, month: number): Promise<Invoice[]> {
   const ym = `${year}-${String(month).padStart(2, '0')}`;
-  if (isDemoMode()) {
-    return demo
-      .demoGetValidatedInvoices()
-      .filter((inv) => invoiceMonth(inv) === ym)
-      .sort((a, b) => String(b.invoice_date || b.created_at).localeCompare(String(a.invoice_date || a.created_at)));
-  }
-  const { data } = await supabase
-    .from('invoices')
-    .select('*, invoice_items(*)')
-    .eq('owner_id', _userId)
-    .eq('status', 'validated')
-    .order('created_at', { ascending: false });
-  return ((data as Invoice[]) || []).filter((inv) => invoiceMonth(inv) === ym);
+  return (await listValidatedInvoices(ownerId))
+    .filter((inv) => invoiceMonth(inv) === ym)
+    .sort((a, b) => String(b.invoice_date || b.created_at).localeCompare(String(a.invoice_date || a.created_at)));
 }
 
-export async function getTopProducts(userId: string, limit = 20): Promise<TopProduct[]> {
-  if (isDemoMode()) {
-    const items = demo.demoGetValidatedInvoices().flatMap((inv) => inv.invoice_items || []);
-    const map = new Map<string, { qty: number; prices: number[]; count: number }>();
-    items.forEach((item) => {
-      const entry = map.get(item.product_name) || { qty: 0, prices: [], count: 0 };
-      entry.qty += Number(item.quantity);
-      entry.prices.push(Number(item.unit_price));
-      entry.count += 1;
-      map.set(item.product_name, entry);
-    });
-    return Array.from(map.entries())
-      .map(([product_name, v]) => ({
-        product_name,
-        total_qty: v.qty,
-        avg_price: v.prices.reduce((a, b) => a + b, 0) / v.prices.length,
-        purchase_count: v.count,
-      }))
-      .sort((a, b) => b.total_qty - a.total_qty)
-      .slice(0, limit);
-  }
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('id')
-    .eq('owner_id', userId)
-    .eq('status', 'validated');
-
-  const ids = (invoices || []).map((i) => i.id);
-  if (!ids.length) return [];
-
-  const { data: items } = await supabase.from('invoice_items').select('*').in('invoice_id', ids);
-
+export async function getTopProducts(ownerId: string, limit = 20): Promise<TopProduct[]> {
+  const items = (await listValidatedInvoices(ownerId)).flatMap((inv) => inv.invoice_items || []);
   const map = new Map<string, { qty: number; prices: number[]; count: number }>();
-  (items || []).forEach((item) => {
-    const key = item.product_name;
-    const entry = map.get(key) || { qty: 0, prices: [], count: 0 };
+  items.forEach((item) => {
+    const entry = map.get(item.product_name) || { qty: 0, prices: [], count: 0 };
     entry.qty += Number(item.quantity);
     entry.prices.push(Number(item.unit_price));
     entry.count += 1;
-    map.set(key, entry);
+    map.set(item.product_name, entry);
   });
-
   return Array.from(map.entries())
     .map(([product_name, v]) => ({
       product_name,
@@ -611,64 +247,18 @@ export async function getTopProducts(userId: string, limit = 20): Promise<TopPro
     .slice(0, limit);
 }
 
-export async function getPriceEvolution(
-  userId: string,
-  productName: string,
-  months = 6,
-): Promise<PriceEvolutionPoint[]> {
-  if (isDemoMode()) {
-    const invoices = demo.demoGetValidatedInvoices();
-    const monthly: Record<string, number[]> = {};
-    invoices.forEach((inv) => {
-      (inv.invoice_items || []).forEach((item) => {
-        if (!item.product_name.toLowerCase().includes(productName.toLowerCase())) return;
-        const month = String(inv.invoice_date || inv.created_at).slice(0, 7);
-        if (!monthly[month]) monthly[month] = [];
-        monthly[month].push(Number(item.unit_price));
-      });
-    });
-    return Object.keys(monthly)
-      .sort()
-      .slice(-months)
-      .map((month) => ({
-        month,
-        avg_price: monthly[month].reduce((a, b) => a + b, 0) / monthly[month].length,
-        count: monthly[month].length,
-      }));
-  }
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - months * 30);
-
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('id, created_at, invoice_date')
-    .eq('owner_id', userId)
-    .eq('status', 'validated')
-    .gte('created_at', cutoff.toISOString());
-
-  const invMap = new Map(
-    (invoices || []).map((i) => [i.id, String(i.invoice_date || i.created_at)]),
-  );
-  const ids = [...invMap.keys()];
-  if (!ids.length) return [];
-
-  const { data: items } = await supabase
-    .from('invoice_items')
-    .select('*')
-    .in('invoice_id', ids)
-    .ilike('product_name', `%${productName}%`);
-
+export async function getPriceEvolution(ownerId: string, productName: string, months = 6): Promise<PriceEvolutionPoint[]> {
   const monthly: Record<string, number[]> = {};
-  (items || []).forEach((item) => {
-    const created = invMap.get(item.invoice_id);
-    if (!created) return;
-    const month = created.slice(0, 7);
-    if (!monthly[month]) monthly[month] = [];
-    monthly[month].push(Number(item.unit_price));
+  (await listValidatedInvoices(ownerId)).forEach((inv) => {
+    (inv.invoice_items || []).forEach((item) => {
+      if (!item.product_name.toLowerCase().includes(productName.toLowerCase())) return;
+      const month = invoiceMonth(inv);
+      (monthly[month] ||= []).push(Number(item.unit_price));
+    });
   });
-
   return Object.keys(monthly)
     .sort()
+    .slice(-months)
     .map((month) => ({
       month,
       avg_price: monthly[month].reduce((a, b) => a + b, 0) / monthly[month].length,
@@ -676,12 +266,11 @@ export async function getPriceEvolution(
     }));
 }
 
-export async function getPriceAlerts(userId: string, threshold = 5): Promise<PriceAlert[]> {
-  const products = await getTopProducts(userId, 50);
+export async function getPriceAlerts(ownerId: string, threshold = 5): Promise<PriceAlert[]> {
+  const products = await getTopProducts(ownerId, 50);
   const alerts: PriceAlert[] = [];
-
   for (const product of products) {
-    const evolution = await getPriceEvolution(userId, product.product_name, 6);
+    const evolution = await getPriceEvolution(ownerId, product.product_name, 6);
     if (evolution.length < 2) continue;
     const first = evolution[0].avg_price;
     const last = evolution[evolution.length - 1].avg_price;
@@ -696,49 +285,24 @@ export async function getPriceAlerts(userId: string, threshold = 5): Promise<Pri
       });
     }
   }
-
   return alerts.sort((a, b) => b.change_pct - a.change_pct);
 }
 
-export async function getSpendingBySupplier(userId: string, months = 3): Promise<SupplierSpending[]> {
-  if (isDemoMode()) {
-    const map = new Map<string, { total: number; count: number }>();
-    demo.demoGetValidatedInvoices().forEach((inv) => {
+export async function getSpendingBySupplier(ownerId: string, months = 3): Promise<SupplierSpending[]> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - months * 30);
+  const map = new Map<string, { total: number; count: number }>();
+  (await listValidatedInvoices(ownerId))
+    .filter((inv) => new Date(inv.created_at) >= cutoff)
+    .forEach((inv) => {
       const name = displaySupplier(inv.supplier_name_raw);
       const e = map.get(name) || { total: 0, count: 0 };
       e.total += invoiceLandedTotal(inv);
       e.count += 1;
       map.set(name, e);
     });
-    return Array.from(map.entries())
-      .map(([supplier_name_raw, v]) => ({ supplier_name_raw, total: v.total, count: v.count }))
-      .sort((a, b) => b.total - a.total);
-  }
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - months * 30);
-
-  const { data } = await supabase
-    .from('invoices')
-    .select('supplier_name_raw, total_amount, ocr_raw_data, transport_fee')
-    .eq('owner_id', userId)
-    .eq('status', 'validated')
-    .gte('created_at', cutoff.toISOString());
-
-  const map = new Map<string, { total: number; count: number }>();
-  (data || []).forEach((row) => {
-    const name = displaySupplier(row.supplier_name_raw);
-    const entry = map.get(name) || { total: 0, count: 0 };
-    entry.total += invoiceLandedTotal(row);
-    entry.count += 1;
-    map.set(name, entry);
-  });
-
   return Array.from(map.entries())
-    .map(([supplier_name_raw, v]) => ({
-      supplier_name_raw,
-      total: v.total,
-      count: v.count,
-    }))
+    .map(([supplier_name_raw, v]) => ({ supplier_name_raw, total: v.total, count: v.count }))
     .sort((a, b) => b.total - a.total);
 }
 
@@ -746,59 +310,42 @@ export function formatFcfa(amount: number): string {
   return `${Math.round(amount).toLocaleString('fr-FR')} FCFA`;
 }
 
+/** Montant sans l'unité, pour les gros chiffres où « FCFA » est affiché à part. */
+export function formatAmount(amount: number): string {
+  return Math.round(amount).toLocaleString('fr-FR');
+}
+
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function invoiceMonth(inv: { invoice_date: string | null; created_at: string }): string {
   return String(inv.invoice_date || inv.created_at).slice(0, 7);
 }
 
-export async function getMonthlySpendingSeries(userId: string, months = 6): Promise<{ month: string; total: number }[]> {
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - months);
-
-  let rows: { month: string; total: number }[] = [];
-  if (isDemoMode()) {
-    const map = new Map<string, number>();
-    demo.demoGetValidatedInvoices().forEach((inv) => {
-      const month = invoiceMonth(inv);
-      map.set(month, (map.get(month) || 0) + invoiceLandedTotal(inv));
-    });
-    rows = [...map.entries()].map(([month, total]) => ({ month, total }));
-  } else {
-    const { data } = await supabase
-      .from('invoices')
-      .select('invoice_date, created_at, total_amount, ocr_raw_data, transport_fee')
-      .eq('owner_id', userId)
-      .eq('status', 'validated')
-      .gte('created_at', cutoff.toISOString());
-    const map = new Map<string, number>();
-    (data || []).forEach((inv) => {
-      const month = invoiceMonth(inv);
-      map.set(month, (map.get(month) || 0) + invoiceLandedTotal(inv));
-    });
-    rows = [...map.entries()].map(([month, total]) => ({ month, total }));
-  }
-
-  return rows.sort((a, b) => a.month.localeCompare(b.month)).slice(-months);
+export async function getMonthlySpendingSeries(ownerId: string, months = 6): Promise<{ month: string; total: number }[]> {
+  const map = new Map<string, number>();
+  (await listValidatedInvoices(ownerId)).forEach((inv) => {
+    const month = invoiceMonth(inv);
+    map.set(month, (map.get(month) || 0) + invoiceLandedTotal(inv));
+  });
+  return [...map.entries()]
+    .map(([month, total]) => ({ month, total }))
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .slice(-months);
 }
 
-export async function getSpendingForecast(userId: string): Promise<SpendingForecast | null> {
-  const history = await getMonthlySpendingSeries(userId, 6);
+export async function getSpendingForecast(ownerId: string): Promise<SpendingForecast | null> {
+  const history = await getMonthlySpendingSeries(ownerId, 6);
   if (history.length < 2) return null;
 
   const last3 = history.slice(-3);
   const avg3 = mean(last3.map((h) => h.total));
 
-  const products = await getTopProducts(userId, 15);
+  const products = await getTopProducts(ownerId, 15);
   const rates: number[] = [];
   for (const product of products) {
-    const evo = await getPriceEvolution(userId, product.product_name, 6);
+    const evo = await getPriceEvolution(ownerId, product.product_name, 6);
     const rate = monthlyGrowthRate(evo.map((p) => p.avg_price));
     if (rate !== null) rates.push(rate);
   }
@@ -820,7 +367,7 @@ export async function getSpendingForecast(userId: string): Promise<SpendingForec
     slope: fit?.slope ?? 0,
     r2: fit?.r2 ?? 0,
     n: history.length,
-    summary: `En fonction de vos achats passés et de l'augmentation récente des prix (${sign}${inflation_pct} %), prévoyez environ ${formatFcfa(predicted_total)} de budget d'achat pour ${formatMonthLong(predicted_month)}.`,
+    summary: `D'après vos achats passés et l'évolution récente des prix (${sign}${inflation_pct} %), prévoyez environ ${formatFcfa(predicted_total)} de budget d'achat pour ${formatMonthLong(predicted_month)}.`,
   };
 }
 
@@ -831,19 +378,10 @@ function monthlyAvgSeries(points: { month: string; price: number }[]): number[] 
     arr.push(p.price);
     map.set(p.month, arr);
   });
-  return [...map.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([, prices]) => mean(prices));
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, prices]) => mean(prices));
 }
 
-function forecastFromSeries(series: number[]): {
-  last: number;
-  predicted: number;
-  monthly_pct: number;
-  slope: number;
-  r2: number;
-  n: number;
-} | null {
+function forecastFromSeries(series: number[]): { last: number; predicted: number; monthly_pct: number; slope: number; r2: number; n: number } | null {
   if (!series.length) return null;
   const last = series[series.length - 1];
   const fit = fitLinearNext(series);
@@ -860,19 +398,17 @@ function forecastFromSeries(series: number[]): {
   return { last, predicted: Math.round(last), monthly_pct: 0, slope: 0, r2: 0, n: series.length };
 }
 
-export async function getProductPriceForecasts(userId: string, limit = 5): Promise<ProductForecast[]> {
-  const products = await getTopProducts(userId, 12);
-  const lines = await getValidatedPurchaseLines(userId);
+export async function getProductPriceForecasts(ownerId: string, limit = 5): Promise<ProductForecast[]> {
+  const products = await getTopProducts(ownerId, 12);
+  const lines = await getValidatedPurchaseLines(ownerId);
   const out: ProductForecast[] = [];
 
   for (const product of products) {
-    const evo = await getPriceEvolution(userId, product.product_name, 8);
+    const evo = await getPriceEvolution(ownerId, product.product_name, 8);
     const overall = forecastFromSeries(evo.map((p) => p.avg_price));
     if (!overall || evo.length < 2) continue;
 
-    const related = lines.filter(
-      (l) => l.product_name.trim().toLowerCase() === product.product_name.trim().toLowerCase(),
-    );
+    const related = lines.filter((l) => l.product_name.trim().toLowerCase() === product.product_name.trim().toLowerCase());
     const byName = new Map<string, PurchaseLine[]>();
     related.forEach((l) => {
       if (!isNamedSupplier(l.supplier)) return;
@@ -885,13 +421,7 @@ export async function getProductPriceForecasts(userId: string, limit = 5): Promi
       .map(([name, plist]) => {
         const f = forecastFromSeries(monthlyAvgSeries(plist.map((l) => ({ month: l.month, price: l.unit_price }))));
         if (!f) return null;
-        return {
-          name,
-          last_price: f.last,
-          predicted_price: f.predicted,
-          monthly_pct: f.monthly_pct,
-          n: f.n,
-        };
+        return { name, last_price: f.last, predicted_price: f.predicted, monthly_pct: f.monthly_pct, n: f.n };
       })
       .filter((s): s is SupplierPriceForecast => s !== null)
       .sort((a, b) => a.predicted_price - b.predicted_price);
@@ -920,8 +450,8 @@ type PurchaseLine = {
   month: string;
 };
 
-async function getValidatedPurchaseLines(userId: string): Promise<PurchaseLine[]> {
-  const toLines = (inv: Invoice): PurchaseLine[] => {
+async function getValidatedPurchaseLines(ownerId: string): Promise<PurchaseLine[]> {
+  return (await listValidatedInvoices(ownerId)).flatMap((inv) => {
     const items = inv.invoice_items || [];
     const costs = allocateTransport(items, transportFeeOf(inv));
     const supplier = displaySupplier(inv.supplier_name_raw);
@@ -934,44 +464,11 @@ async function getValidatedPurchaseLines(userId: string): Promise<PurchaseLine[]
       total_price: costs[i].line_landed_cost,
       month,
     }));
-  };
-
-  if (isDemoMode()) {
-    return demo.demoGetValidatedInvoices().flatMap(toLines);
-  }
-
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('id, supplier_name_raw, invoice_date, created_at, total_amount, transport_fee, ocr_raw_data')
-    .eq('owner_id', userId)
-    .eq('status', 'validated');
-  const list = invoices || [];
-  if (!list.length) return [];
-  const { data: items } = await supabase
-    .from('invoice_items')
-    .select('*')
-    .in(
-      'invoice_id',
-      list.map((i) => i.id),
-    );
-
-  const byInv = new Map<string, InvoiceItem[]>();
-  (items || []).forEach((item) => {
-    const arr = byInv.get(item.invoice_id) || [];
-    arr.push(item as InvoiceItem);
-    byInv.set(item.invoice_id, arr);
   });
-
-  return list.flatMap((row) =>
-    toLines({
-      ...(row as Invoice),
-      invoice_items: byInv.get(row.id) || [],
-    }),
-  );
 }
 
-export async function getFinancialOptimization(userId: string): Promise<FinancialOptimization | null> {
-  const lines = (await getValidatedPurchaseLines(userId)).filter(
+export async function getFinancialOptimization(ownerId: string): Promise<FinancialOptimization | null> {
+  const lines = (await getValidatedPurchaseLines(ownerId)).filter(
     (l) => l.quantity > 0 && l.unit_price > 0 && l.product_name.trim(),
   );
   if (!lines.length) return null;
@@ -996,11 +493,7 @@ export async function getFinancialOptimization(userId: string): Promise<Financia
       bySupplier.set(l.supplier, e);
     });
     const suppliers = [...bySupplier.entries()]
-      .map(([name, v]) => ({
-        name,
-        qty: v.qty,
-        avg_price: v.qty > 0 ? v.spent / v.qty : 0,
-      }))
+      .map(([name, v]) => ({ name, qty: v.qty, avg_price: v.qty > 0 ? v.spent / v.qty : 0 }))
       .filter((s) => s.avg_price > 0)
       .sort((a, b) => a.avg_price - b.avg_price);
     if (!suppliers.length) continue;
@@ -1011,26 +504,12 @@ export async function getFinancialOptimization(userId: string): Promise<Financia
     const actual_spent = plist.reduce((s, l) => s + l.total_price, 0);
     const qty = plist.reduce((s, l) => s + l.quantity, 0);
 
-    let cheapest_supplier = cheapestNamed?.name || UNKNOWN_SUPPLIER;
-    let cheapest_unit_price = cheapestNamed?.avg_price || 0;
-    let optimized_spent = actual_spent;
-    if (cheapestNamed) {
-      optimized_spent = qty * cheapestNamed.avg_price;
-    }
+    const cheapest_supplier = cheapestNamed?.name || UNKNOWN_SUPPLIER;
+    const cheapest_unit_price = cheapestNamed?.avg_price || 0;
+    const optimized_spent = cheapestNamed ? qty * cheapestNamed.avg_price : actual_spent;
     const savings = Math.max(0, actual_spent - optimized_spent);
-    products.push({
-      product_name,
-      qty,
-      actual_spent,
-      optimized_spent,
-      savings,
-      cheapest_supplier,
-      cheapest_unit_price,
-      suppliers,
-    });
-    if (unnamed && cheapestNamed && unnamed.avg_price + 1 < cheapestNamed.avg_price) {
-      unnamedCheaper = true;
-    }
+    products.push({ product_name, qty, actual_spent, optimized_spent, savings, cheapest_supplier, cheapest_unit_price, suppliers });
+    if (unnamed && cheapestNamed && unnamed.avg_price + 1 < cheapestNamed.avg_price) unnamedCheaper = true;
   }
 
   products.sort((a, b) => b.savings - a.savings);
@@ -1041,29 +520,23 @@ export async function getFinancialOptimization(userId: string): Promise<Financia
 
   const advice: string[] = [];
   if (unnamedCheaper) {
-    advice.push(
-      'Certains tickets sans nom de vendeur sont moins chers que vos fournisseurs identifiés. Notez le nom du vendeur pour en faire un conseil.',
-    );
+    advice.push('Certains tickets sans nom de vendeur sont moins chers que vos fournisseurs identifiés. Notez le nom du vendeur pour en faire un conseil.');
   }
   const withSaving = products.filter(
     (p) => p.savings >= 1 && isNamedSupplier(p.cheapest_supplier) && p.suppliers.filter((s) => isNamedSupplier(s.name)).length >= 1,
   );
   withSaving.slice(0, 3).forEach((p) => {
-    advice.push(
-      `Privilégier ${p.cheapest_supplier} pour ${p.product_name} (${formatFcfa(p.cheapest_unit_price)} / unité).`,
-    );
+    advice.push(`Privilégier ${p.cheapest_supplier} pour ${p.product_name} (${formatFcfa(p.cheapest_unit_price)} / unité).`);
   });
 
-  const forecasts = await getProductPriceForecasts(userId, 8);
+  const forecasts = await getProductPriceForecasts(ownerId, 8);
   forecasts
     .filter((f) => f.slope > 0)
     .slice(0, 2)
     .forEach((f) => {
       const match = products.find((p) => p.product_name === f.product_name && isNamedSupplier(p.cheapest_supplier));
       const chez = match ? ` chez ${match.cheapest_supplier}` : '';
-      advice.push(
-        `${f.product_name} est en hausse prévue : anticiper l'achat${chez} avant le prochain mois.`,
-      );
+      advice.push(`${f.product_name} est en hausse prévue : anticipez l'achat${chez} avant le mois prochain.`);
     });
 
   if (!withSaving.length) {
@@ -1099,16 +572,14 @@ export async function getFinancialOptimization(userId: string): Promise<Financia
     currentCost += qty * usualPred;
     bestCost += qty * best.predicted_price;
     const gain = qty * (usualPred - best.predicted_price);
-    if (gain > 0) {
-      savingsBySupplier.set(best.name, (savingsBySupplier.get(best.name) || 0) + gain);
-    }
+    if (gain > 0) savingsBySupplier.set(best.name, (savingsBySupplier.get(best.name) || 0) + gain);
   }
 
   if (currentCost > 0 && bestCost < currentCost - 1) {
     predicted_savings_pct = Math.round(((currentCost - bestCost) / currentCost) * 1000) / 10;
     recommended_supplier = [...savingsBySupplier.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
     if (recommended_supplier && predicted_savings_pct >= 1) {
-      recommendation = `Il est prédit que les achats chez ${recommended_supplier} vous feront économiser environ ${Math.round(predicted_savings_pct)} % sur votre prochaine commande globale.`;
+      recommendation = `Acheter chez ${recommended_supplier} devrait vous faire économiser environ ${Math.round(predicted_savings_pct)} % sur votre prochaine commande.`;
     }
   }
 
