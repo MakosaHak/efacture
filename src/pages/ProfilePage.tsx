@@ -16,7 +16,7 @@ import { DEFAULT_MARGIN } from '../lib/pricing';
 import { getDefaultMargin, setDefaultMargin } from '../lib/productPrices';
 import { compressFile } from '../lib/ocr/image-utils';
 import { MarginPicker } from '../components/ui/MarginPicker';
-import { buildMonthlyCsv, buildMonthlyPdf, downloadCsv, downloadPdf, monthLabelFr } from '../lib/export-pdf';
+import { buildMonthlyPdf, downloadPdf, monthLabelFr } from '../lib/export-pdf';
 
 function currentMonthValue(): string {
   const d = new Date();
@@ -31,7 +31,7 @@ export default function ProfilePage() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarMsg, setAvatarMsg] = useState('');
   const [monthValue, setMonthValue] = useState(currentMonthValue);
-  const [exporting, setExporting] = useState<'pdf' | 'csv' | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [exportMsg, setExportMsg] = useState('');
   const [nomPersonne, setNomPersonne] = useState('');
   const [nomCommerce, setNomCommerce] = useState('');
@@ -122,25 +122,23 @@ export default function ProfilePage() {
     return { year: Number(ys), month: Number(ms) };
   };
 
-  const runExport = async (kind: 'pdf' | 'csv') => {
+  const runExport = async () => {
     if (!user) return;
     const { year, month } = parseMonth();
-    setExporting(kind);
+    setExporting(true);
     setExportMsg('');
     try {
       const invoices = await getValidatedInvoicesForMonth(user.id, year, month);
-      const name = `efacture-${year}-${String(month).padStart(2, '0')}`;
-      if (kind === 'pdf') downloadPdf(buildMonthlyPdf({ profile, year, month, invoices }), `${name}.pdf`);
-      else downloadCsv(buildMonthlyCsv(invoices), `${name}.csv`);
+      downloadPdf(buildMonthlyPdf({ profile, year, month, invoices }), `efacture-${year}-${String(month).padStart(2, '0')}.pdf`);
       setExportMsg(
         invoices.length
-          ? `${kind.toUpperCase()} de ${monthLabelFr(year, month)} téléchargé (${invoices.length} reçu${invoices.length > 1 ? 's' : ''}).`
-          : `Aucun reçu validé en ${monthLabelFr(year, month)} : fichier vide téléchargé.`,
+          ? `Relevé de ${monthLabelFr(year, month)} téléchargé (${invoices.length} reçu${invoices.length > 1 ? 's' : ''}).`
+          : `Aucun reçu validé en ${monthLabelFr(year, month)} : relevé vide téléchargé.`,
       );
     } catch {
-      setExportMsg('Impossible de générer le fichier.');
+      setExportMsg('Impossible de générer le PDF.');
     } finally {
-      setExporting(null);
+      setExporting(false);
     }
   };
 
@@ -217,20 +215,14 @@ export default function ProfilePage() {
       </form>
 
       <section className="mb-4">
-        <SectionTitle>Export mensuel</SectionTitle>
+        <SectionTitle>Relevé mensuel</SectionTitle>
         <Card className="space-y-3">
-          <p className="text-[13px] leading-relaxed text-muted">Reçus validés du mois avec totaux, fournisseurs et articles. Pratique pour un comptable.</p>
+          <p className="text-[13px] leading-relaxed text-muted">Un PDF des reçus validés du mois : totaux, fournisseurs et articles. Pratique à garder ou à montrer à un comptable.</p>
           <Input label="Mois" type="month" value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
-          <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="secondary" loading={exporting === 'pdf'} disabled={exporting !== null} onClick={() => runExport('pdf')}>
-              <Download size={16} />
-              PDF
-            </Button>
-            <Button type="button" variant="secondary" loading={exporting === 'csv'} disabled={exporting !== null} onClick={() => runExport('csv')}>
-              <Download size={16} />
-              CSV
-            </Button>
-          </div>
+          <Button type="button" fullWidth loading={exporting} onClick={runExport}>
+            <Download size={16} />
+            Télécharger le PDF
+          </Button>
           {exportMsg && <Notice tone="neutral">{exportMsg}</Notice>}
         </Card>
       </section>

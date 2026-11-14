@@ -6,6 +6,7 @@ import { Card, SectionTitle } from '../components/ui/Card';
 import { EmptyState, ListRow, Spinner } from '../components/ui/Feedback';
 import { Avatar } from '../components/ui/Avatar';
 import { InvoiceThumbnail } from '../components/invoices/InvoiceThumbnail';
+import { AnalysisWheel } from '../components/dashboard/AnalysisWheel';
 import { useAuth } from '../context/AuthContext';
 import {
   formatAmount,
@@ -185,28 +186,28 @@ export default function DashboardPage() {
 
       <section className="mb-5">
         <SectionTitle>Analyses</SectionTitle>
-        <Card padding="none" className="divide-y divide-line">
-          <Link to="/stats/prix" className="block px-4 py-3 hover:bg-surface-2">
-            <ListRow icon={LineChart} tone="blue" title="Évolution des prix" subtitle="Par produit et par fournisseur" trailing={<ChevronRight size={18} className="text-faint" />} />
-          </Link>
-          <Link to="/stats/previsions" className="block px-4 py-3 hover:bg-surface-2">
-            <ListRow
-              icon={TrendingUp}
-              tone="violet"
-              title="Budget du mois prochain"
-              subtitle={forecast ? `Environ ${formatFcfa(forecast.predicted_total)}` : 'Disponible après deux mois d’achats'}
-              trailing={<ChevronRight size={18} className="text-faint" />}
-            />
-          </Link>
-          <Link to="/stats/optimisation" className="block px-4 py-3 hover:bg-surface-2">
-            <ListRow
-              icon={ShoppingBag}
-              tone="teal"
-              title="Conseil d’achat"
-              subtitle={optimization && optimization.potential_savings > 0 ? `Jusqu’à ${formatFcfa(optimization.potential_savings)} d’économies` : 'Comparez vos fournisseurs'}
-              trailing={<ChevronRight size={18} className="text-faint" />}
-            />
-          </Link>
+        <Card className="py-5">
+          <AnalysisWheel
+            items={[
+              { to: '/stats/prix', label: 'Évolution des prix', icon: LineChart, fill: '#eff4ff', ink: '#1e3a8a' },
+              {
+                to: '/stats/previsions',
+                label: 'Budget du mois prochain',
+                icon: TrendingUp,
+                fill: '#f1ecfb',
+                ink: '#5b21b6',
+                value: forecast ? `≈ ${formatAmount(forecast.predicted_total)} F` : undefined,
+              },
+              {
+                to: '/stats/optimisation',
+                label: 'Conseil d’achat',
+                icon: ShoppingBag,
+                fill: '#e6f6f4',
+                ink: '#0f766e',
+                value: optimization && optimization.potential_savings > 0 ? `${formatAmount(optimization.potential_savings)} F à gagner` : undefined,
+              },
+            ]}
+          />
         </Card>
       </section>
 
