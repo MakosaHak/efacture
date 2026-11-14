@@ -79,7 +79,7 @@ export default function InvoiceListPage() {
     <AppLayout>
       <AppHeader title="Mes reçus" backTo="/" />
 
-      <div className="mb-3 rounded-card bg-primary-ink p-4 text-white">
+      <div className="mb-3 rounded-card bg-primary p-4 text-white shadow-card">
         <p className="text-[13px] text-white/75">{status || search ? 'Sélection affichée' : 'Tous mes achats validés'}</p>
         <p className="mt-1 text-[26px] font-bold leading-none tracking-tight">
           {formatAmount(validatedTotal)} <span className="text-sm font-semibold text-white/75">FCFA</span>
@@ -181,7 +181,7 @@ export default function InvoiceListPage() {
                         <InvoiceThumbnail photoPath={inv.photo_path} size={48} />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[15px] font-medium text-ink">{displaySupplier(inv.supplier_name_raw)}</p>
-                          <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-muted">
+                          <p className="mt-0.5 flex items-center gap-1.5 truncate whitespace-nowrap text-[13px] text-muted">
                             <span className={`inline-block h-1.5 w-1.5 rounded-full ${st.dot}`} aria-hidden />
                             <span className={st.text}>{st.label}</span>
                             <span>· {formatDate(inv.invoice_date || inv.created_at)}</span>
