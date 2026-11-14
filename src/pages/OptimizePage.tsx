@@ -10,7 +10,7 @@ import { isNamedSupplier } from '../lib/supplier';
 import type { FinancialOptimization } from '../types/invoice';
 
 export default function OptimizePage() {
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const [opt, setOpt] = useState<FinancialOptimization | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -20,7 +20,7 @@ export default function OptimizePage() {
       setOpt(v);
       setLoading(false);
     });
-  }, [user]);
+  }, [user, dataVersion]);
 
   return (
     <AppLayout>

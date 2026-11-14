@@ -15,13 +15,20 @@ import {
 } from '../lib/auth/local-auth';
 import { seedSampleData } from '../lib/demo/seed';
 import { requestPersistentStorage } from '../lib/db/local-db';
-import { putPhoto, removePhoto } from '../lib/db/repo';
+import { getUserById, putPhoto, removePhoto } from '../lib/db/repo';
 import { normalizePhoneDigits, validateTogoPhone } from '../lib/auth/phone-auth';
+import { cloudEnabled } from '../lib/supabase';
+import { countCloudInvoices, getSyncState, onRemoteData, onSyncState, startSync, stopSync, syncNow, type SyncState } from '../lib/sync/cloud-sync';
 
 interface AuthContextValue {
   user: AuthUser | null;
   profile: Profile | null;
   loading: boolean;
+  /** Incrémenté quand des données arrivent du cloud : les écrans se rechargent. */
+  dataVersion: number;
+  sync: SyncState;
+  cloudEnabled: boolean;
+  syncNow: () => Promise<void>;
   signInWithPhonePassword: (phone: string, password: string) => Promise<void>;
   signUpWithPhonePassword: (phone: string, password: string, profile: ProfileInput) => Promise<void>;
   updateProfile: (data: ProfileInput) => Promise<void>;
@@ -38,11 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dataVersion, setDataVersion] = useState(0);
+  const [sync, setSync] = useState<SyncState>(getSyncState());
 
   const apply = useCallback((record: LocalUserRecord) => {
     setUser(toAuthUser(record));
     setProfile(toProfile(record));
     saveSession(record.id);
+    if (cloudEnabled) void startSync(record.id);
   }, []);
 
   useEffect(() => {
@@ -53,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (record) {
           setUser(toAuthUser(record));
           setProfile(toProfile(record));
+          if (cloudEnabled) void startSync(record.id);
         }
       })
       .catch(() => undefined)
@@ -64,6 +75,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // Données arrivées du cloud : on rafraîchit les écrans et le profil affiché.
+  useEffect(() => {
+    const offData = onRemoteData(() => {
+      setDataVersion((v) => v + 1);
+      const id = user?.id;
+      if (id) void getUserById(id).then((r) => r && setProfile(toProfile(r)));
+    });
+    const offState = onSyncState(setSync);
+    return () => {
+      offData();
+      offState();
+    };
+  }, [user?.id]);
 
   const signInWithPhonePassword = useCallback(
     async (phone: string, password: string) => {
@@ -104,11 +129,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateAvatar = useCallback(
     async (blob: Blob) => {
       if (!user) throw new Error('Non connecté.');
-      // Un identifiant différent à chaque fois : les vignettes déjà affichées ne sont pas réutilisées à tort.
-      const avatar_path = await putPhoto(`avatar-${user.id}-${Date.now()}`, blob);
+      const avatar_path = await putPhoto(`avatar-${user.id}-${Date.now()}`, blob, user.id);
       const previous = profile?.avatar_path;
       const record = await updateUserProfile(user.id, { avatar_path });
-      if (previous) await removePhoto(previous);
+      if (previous) await removePhoto(previous, user.id);
       setProfile(toProfile(record));
     },
     [user, profile?.avatar_path],
@@ -118,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) throw new Error('Non connecté.');
     const previous = profile?.avatar_path;
     const record = await updateUserProfile(user.id, { avatar_path: undefined });
-    if (previous) await removePhoto(previous);
+    if (previous) await removePhoto(previous, user.id);
     setProfile(toProfile(record));
   }, [user, profile?.avatar_path]);
 
@@ -132,12 +156,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInSample = useCallback(async () => {
     const record = await ensureSampleUser();
-    await seedSampleData(record.id);
-    const fresh = (await restoreSessionFor(record.id)) ?? record;
+    saveSession(record.id);
+    if (cloudEnabled) {
+      // Les données existent peut-être déjà dans le cloud (autre appareil) : on les rapatrie avant de semer.
+      await startSync(record.id);
+      const already = await countCloudInvoices(record.id);
+      if (already === 0) await seedSampleData(record.id);
+    } else {
+      await seedSampleData(record.id);
+    }
+    const fresh = (await getUserById(record.id)) ?? record;
     apply(fresh);
+    setDataVersion((v) => v + 1);
   }, [apply]);
 
   const signOut = useCallback(async () => {
+    stopSync();
     clearSession();
     setUser(null);
     setProfile(null);
@@ -148,6 +182,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       profile,
       loading,
+      dataVersion,
+      sync,
+      cloudEnabled,
+      syncNow,
       signInWithPhonePassword,
       signUpWithPhonePassword,
       updateProfile,
@@ -157,16 +195,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInSample,
       signOut,
     }),
-    [user, profile, loading, signInWithPhonePassword, signUpWithPhonePassword, updateProfile, updateAvatar, removeAvatar, changePassword, signInSample, signOut],
+    [user, profile, loading, dataVersion, sync, signInWithPhonePassword, signUpWithPhonePassword, updateProfile, updateAvatar, removeAvatar, changePassword, signInSample, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-/** Relit le compte après le seed (la photo de profil vient d'être ajoutée). */
-async function restoreSessionFor(id: string): Promise<LocalUserRecord | null> {
-  saveSession(id);
-  return restoreSession();
 }
 
 export function useAuth() {

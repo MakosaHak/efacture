@@ -9,14 +9,14 @@ import { formatFcfa, getSpendingBySupplier } from '../lib/invoices';
 import type { SupplierSpending } from '../types/invoice';
 
 export default function SuppliersPage() {
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const [spending, setSpending] = useState<SupplierSpending[]>([]);
   const maxTotal = spending[0]?.total || 1;
 
   useEffect(() => {
     if (!user) return;
     getSpendingBySupplier(user.id, 12).then(setSpending);
-  }, [user]);
+  }, [user, dataVersion]);
 
   return (
     <AppLayout>

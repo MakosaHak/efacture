@@ -1,11 +1,12 @@
 /**
  * Base de données locale (IndexedDB) — toutes les données de l'application
  * vivent dans le navigateur : comptes, factures (avec leurs lignes), photos,
- * prix de vente et réglages. Aucun serveur, aucune base externe.
+ * prix de vente et réglages. La synchronisation Supabase (facultative) vient
+ * par-dessus : la file `outbox` garde les écritures à envoyer.
  */
 
 const DB_NAME = 'efacture';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const STORES = {
   users: 'users',
@@ -13,6 +14,7 @@ export const STORES = {
   photos: 'photos',
   productPrices: 'product_prices',
   settings: 'settings',
+  outbox: 'outbox',
 } as const;
 
 export type StoreName = (typeof STORES)[keyof typeof STORES];
@@ -46,6 +48,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.settings)) {
         db.createObjectStore(STORES.settings, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORES.outbox)) {
+        const outbox = db.createObjectStore(STORES.outbox, { keyPath: 'id' });
+        outbox.createIndex('owner_id', 'owner_id', { unique: false });
       }
     };
     req.onsuccess = () => {

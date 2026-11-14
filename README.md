@@ -4,7 +4,7 @@
 
 Application web progressive (PWA) pour les commerçants de Lomé : photographier un reçu, lire le texte automatiquement (OCR dans le navigateur), vérifier les montants, puis suivre dépenses, prix d'achat, fournisseurs et prix de vente conseillés.
 
-> **Tout est local.** Comptes, reçus, photos et prix sont enregistrés dans le navigateur (IndexedDB). Aucun serveur, aucune base de données externe, aucune clé à configurer. L'application fonctionne sans réseau une fois installée.
+> **Local d'abord, cloud en plus.** Comptes, reçus, photos et prix sont enregistrés dans le navigateur (IndexedDB) : l'application fonctionne sans réseau une fois installée. Si un projet Supabase est configuré, les mêmes données sont synchronisées en ligne et retrouvées sur les autres appareils du même compte.
 
 ---
 
@@ -13,6 +13,7 @@ Application web progressive (PWA) pour les commerçants de Lomé : photographier
 - [Fonctionnalités](#fonctionnalités)
 - [Stack technique](#stack-technique)
 - [Stockage local](#stockage-local)
+- [Synchronisation Supabase](#synchronisation-supabase)
 - [Pages et navigation](#pages-et-navigation)
 - [Authentification](#authentification)
 - [Parcours scan d'un reçu](#parcours-scan-dun-reçu)
@@ -69,6 +70,30 @@ Base IndexedDB `efacture`, cinq magasins :
 Chaque donnée est liée à un `owner_id` : plusieurs comptes peuvent coexister sur le même appareil sans voir les données des autres. Au démarrage, l'application demande au navigateur un **stockage persistant** pour éviter toute purge automatique.
 
 Code : `src/lib/db/local-db.ts` (ouverture, transactions) et `src/lib/db/repo.ts` (accès par entité).
+
+---
+
+## Synchronisation Supabase
+
+Facultative. Sans les deux variables ci-dessous, l'application est 100 % locale.
+
+### Mise en place
+
+1. Créer un projet sur [supabase.com](https://supabase.com) (offre gratuite).
+2. **SQL Editor** : coller `supabase/schema.sql` et exécuter. Cela crée les tables `profiles`, `invoices`, `product_prices` (format JSON, sécurité par utilisateur), le bucket privé `receipt-photos` et active le temps réel.
+3. **Authentication → Sign In / Providers** : désactiver **Confirm email** (le téléphone sert d'identifiant, aucun e-mail n'est envoyé).
+4. Copier `.env.example` en `.env` et renseigner `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (*Project Settings → API Keys*).
+5. Relancer `npm run dev` ou refaire `npm run build`. Si l'hébergeur construit lui-même l'application (Netlify depuis GitHub), déclarer ces deux variables dans ses réglages de build.
+
+### Fonctionnement
+
+- Les comptes sont créés dans Supabase Auth (e-mail interne `<téléphone>@phone.e-facture.app`) ; l'identifiant local est l'identifiant Supabase, ce qui permet les règles de sécurité par ligne.
+- Chaque écriture locale (reçu, prix, profil, photo) est notée dans une file `outbox` puis envoyée dès qu'il y a du réseau. Les photos vont dans le stockage Supabase, chemin `<uid>/<photoId>`.
+- Au démarrage et toutes les minutes, l'application rapatrie ce qui a changé côté cloud (autres appareils). Le temps réel applique les changements au fil de l'eau. Les photos manquantes sont téléchargées à la demande.
+- Conflit : la dernière modification gagne (`updated_at`). Suppression : marque `deleted` côté cloud, propagée aux autres appareils.
+- Hors connexion : tout continue de fonctionner ; la première connexion d'un compte sur un nouvel appareil demande le réseau.
+
+Code : `src/lib/supabase.ts`, `src/lib/sync/cloud-sync.ts`, `src/lib/auth/local-auth.ts`.
 
 ---
 
@@ -179,7 +204,7 @@ Le serveur écoute sur toutes les interfaces : ouvrez l'adresse « Network » af
 
 ## Déploiement
 
-Hébergement statique (Netlify, Vercel, GitHub Pages…). Le fichier `netlify.toml` et `public/_redirects` renvoient toutes les routes vers `index.html`. Aucune variable d'environnement n'est nécessaire.
+Hébergement statique (Netlify, Vercel, GitHub Pages…). Le fichier `netlify.toml` et `public/_redirects` renvoient toutes les routes vers `index.html`. En glisser-déposer du dossier `dist`, les clés Supabase du `.env` local sont déjà intégrées au build ; en construction côté hébergeur, déclarer `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` dans ses variables.
 
 ---
 
@@ -210,8 +235,8 @@ src/
 
 ## Limites et pistes
 
-- Les données sont liées à l'appareil et au navigateur : pensez aux exports mensuels. Une sauvegarde / restauration complète (fichier) serait une suite naturelle.
-- Pas de récupération de mot de passe (aucun serveur) : un mot de passe oublié impose de recréer un compte.
+- Sans Supabase, les données sont liées à l'appareil : pensez aux exports mensuels.
+- Pas de récupération de mot de passe par e-mail (le téléphone sert d'identifiant) : à prévoir si besoin.
 - L'OCR dépend de la qualité de la photo : reçu à plat, bien éclairé, cadré en entier.
 
 ---

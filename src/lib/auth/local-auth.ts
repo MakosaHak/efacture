@@ -1,18 +1,22 @@
 /**
- * Authentification 100 % locale : comptes dans IndexedDB, mot de passe haché
- * (SHA-256 salé via WebCrypto), session mémorisée dans localStorage pour que
- * l'application installée reste connectée entre deux lancements.
+ * Authentification : comptes dans IndexedDB (mot de passe haché, session
+ * dans localStorage) et, si Supabase est configuré, le même compte créé
+ * côté cloud (Supabase Auth) pour synchroniser entre appareils.
+ *
+ * Règle : l'identifiant local d'un compte synchronisé est l'identifiant
+ * Supabase de l'utilisateur, ce qui permet les règles de sécurité par ligne.
  */
 import type { Profile } from '../../types/invoice';
 import type { AuthUser, LocalUserRecord, ProfileInput } from '../../types/auth';
-import { getUserById, getUserByPhone, putUser } from '../db/repo';
+import { getUserById, getUserByPhone, putUser, removeUser } from '../db/repo';
 import { normalizePhoneDigits, validateTogoPhone } from './phone-auth';
+import { cloudEnabled, isNetworkError, isOnline, phoneToEmail, supabase } from '../supabase';
+import { fetchCloudProfile } from '../sync/cloud-sync';
 
 const SESSION_KEY = 'efacture-session';
 
 /** Compte d'exemple livré avec l'application (une vraie boutique, données réalistes). */
 export const SAMPLE_ACCOUNT = {
-  id: 'afi-koumako',
   phone: '90451278',
   password: 'afi2026',
   profile: {
@@ -36,7 +40,6 @@ async function hashPassword(password: string, salt: string): Promise<string> {
     const digest = await crypto.subtle.digest('SHA-256', data);
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
   }
-  // Contexte non sécurisé (http sur réseau local) : repli simple, jamais en clair.
   let h = 0;
   for (const c of `${salt}:${password}`) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return `fallback-${h.toString(16)}`;
@@ -50,39 +53,121 @@ export function toProfile(record: LocalUserRecord): Profile {
   return { id: record.id, ...record.profile };
 }
 
-export async function signUp(phoneRaw: string, password: string, input: ProfileInput): Promise<LocalUserRecord> {
-  if (!validateTogoPhone(phoneRaw)) throw new Error('Numéro togolais invalide (ex : 90 12 34 56).');
-  if (password.length < 6) throw new Error('Mot de passe : 6 caractères minimum.');
-  const phone = normalizePhoneDigits(phoneRaw);
-  if (await getUserByPhone(phone)) throw new Error('Ce numéro est déjà inscrit sur cet appareil.');
-
+function newProfile(phone: string, input: Partial<ProfileInput>): Omit<Profile, 'id'> {
   const now = new Date().toISOString();
+  return {
+    nom_personne: input.nom_personne?.trim() || '',
+    nom_commerce: input.nom_commerce?.trim() || '',
+    telephone: phone,
+    adresse: input.adresse?.trim() || '',
+    quartier: input.quartier?.trim() || '',
+    default_margin: input.default_margin,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+async function createLocalRecord(id: string, phone: string, password: string, profile: Omit<Profile, 'id'>, isDemo = false): Promise<LocalUserRecord> {
+  // Un ancien compte local avec ce numéro mais un autre identifiant (créé avant la synchronisation) laisse la place.
+  const previous = await getUserByPhone(phone);
+  if (previous && previous.id !== id) await removeUser(previous.id);
   const salt = randomHex();
   const record: LocalUserRecord = {
-    id: crypto.randomUUID(),
+    id,
     phone,
     salt,
     password_hash: await hashPassword(password, salt),
-    profile: {
-      nom_personne: input.nom_personne?.trim() || '',
-      nom_commerce: input.nom_commerce.trim(),
-      telephone: phone,
-      adresse: input.adresse?.trim() || '',
-      quartier: input.quartier?.trim() || '',
-      default_margin: input.default_margin,
-      created_at: now,
-      updated_at: now,
-    },
-    created_at: now,
+    profile,
+    is_demo: isDemo,
+    created_at: new Date().toISOString(),
   };
   await putUser(record);
   return record;
 }
 
+/* ------------------------------------------------------------------ */
+/* Cloud (Supabase Auth)                                               */
+/* ------------------------------------------------------------------ */
+
+function cloudMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/already registered|already exists|User already/i.test(msg)) return 'Ce numéro est déjà inscrit.';
+  if (/Invalid login credentials/i.test(msg)) return 'Numéro ou mot de passe incorrect.';
+  if (/Email not confirmed/i.test(msg)) return 'Compte non confirmé côté serveur. Contactez l’administrateur.';
+  if (/Password should be/i.test(msg)) return 'Mot de passe trop court (6 caractères minimum).';
+  return msg;
+}
+
+async function cloudSignUp(phone: string, password: string): Promise<string> {
+  if (!supabase) throw new Error('Cloud non configuré');
+  const email = phoneToEmail(phone);
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) throw new Error(cloudMessage(error));
+  if (data.session?.user) return data.session.user.id;
+  // Confirmation d'e-mail activée côté projet : on tente une connexion directe.
+  const signedIn = await supabase.auth.signInWithPassword({ email, password });
+  if (signedIn.error || !signedIn.data.user) throw new Error('Compte créé mais non confirmé côté serveur. Désactivez la confirmation d’e-mail dans Supabase.');
+  return signedIn.data.user.id;
+}
+
+async function cloudSignIn(phone: string, password: string): Promise<string> {
+  if (!supabase) throw new Error('Cloud non configuré');
+  const { data, error } = await supabase.auth.signInWithPassword({ email: phoneToEmail(phone), password });
+  if (error) throw new Error(cloudMessage(error));
+  return data.user.id;
+}
+
+/* ------------------------------------------------------------------ */
+/* Inscription / connexion                                             */
+/* ------------------------------------------------------------------ */
+
+export async function signUp(phoneRaw: string, password: string, input: ProfileInput): Promise<LocalUserRecord> {
+  if (!validateTogoPhone(phoneRaw)) throw new Error('Numéro togolais invalide (ex : 90 12 34 56).');
+  if (password.length < 6) throw new Error('Mot de passe : 6 caractères minimum.');
+  const phone = normalizePhoneDigits(phoneRaw);
+  const profile = newProfile(phone, input);
+
+  if (cloudEnabled && isOnline()) {
+    const id = await cloudSignUp(phone, password);
+    return createLocalRecord(id, phone, password, profile);
+  }
+  if (cloudEnabled) throw new Error('Connexion internet nécessaire pour créer un compte.');
+
+  if (await getUserByPhone(phone)) throw new Error('Ce numéro est déjà inscrit sur cet appareil.');
+  return createLocalRecord(crypto.randomUUID(), phone, password, profile);
+}
+
 export async function signIn(phoneRaw: string, password: string): Promise<LocalUserRecord> {
   if (!validateTogoPhone(phoneRaw)) throw new Error('Numéro togolais invalide (ex : 90 12 34 56).');
-  const record = await getUserByPhone(normalizePhoneDigits(phoneRaw));
-  if (!record) throw new Error('Aucun compte avec ce numéro sur cet appareil.');
+  const phone = normalizePhoneDigits(phoneRaw);
+
+  if (cloudEnabled && isOnline()) {
+    try {
+      const id = await cloudSignIn(phone, password);
+      const existing = await getUserById(id);
+      if (existing) {
+        // Mot de passe peut-être changé sur un autre appareil : on réaligne le hachage local.
+        const salt = randomHex();
+        const refreshed = { ...existing, salt, password_hash: await hashPassword(password, salt) };
+        await putUser(refreshed, { sync: false });
+        return refreshed;
+      }
+      const cloud = await fetchCloudProfile(id);
+      const { phone: _p, ...cloudProfile } = cloud ?? {};
+      const profile = { ...newProfile(phone, {}), ...cloudProfile };
+      return createLocalRecord(id, phone, password, profile as Omit<Profile, 'id'>);
+    } catch (err) {
+      if (!isNetworkError(err)) throw err;
+      // Réseau indisponible : repli sur le compte local s'il existe.
+    }
+  }
+
+  const record = await getUserByPhone(phone);
+  if (!record) {
+    throw new Error(
+      cloudEnabled ? 'Connexion internet nécessaire pour la première connexion sur cet appareil.' : 'Aucun compte avec ce numéro sur cet appareil.',
+    );
+  }
   const hash = await hashPassword(password, record.salt);
   if (hash !== record.password_hash) throw new Error('Mot de passe incorrect.');
   return record;
@@ -106,8 +191,13 @@ export async function changePassword(userId: string, current: string, next: stri
     throw new Error('Mot de passe actuel incorrect.');
   }
   if (next.length < 6) throw new Error('Nouveau mot de passe : 6 caractères minimum.');
+  if (cloudEnabled && supabase) {
+    if (!isOnline()) throw new Error('Connexion internet nécessaire pour changer le mot de passe.');
+    const { error } = await supabase.auth.updateUser({ password: next });
+    if (error) throw new Error(cloudMessage(error));
+  }
   const salt = randomHex();
-  await putUser({ ...record, salt, password_hash: await hashPassword(next, salt) });
+  await putUser({ ...record, salt, password_hash: await hashPassword(next, salt) }, { sync: false });
 }
 
 /* ---------------- Session ---------------- */
@@ -118,6 +208,7 @@ export function saveSession(userId: string): void {
 
 export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY);
+  if (supabase) void supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
 }
 
 export async function restoreSession(): Promise<LocalUserRecord | null> {
@@ -134,36 +225,24 @@ export async function restoreSession(): Promise<LocalUserRecord | null> {
   return record;
 }
 
-/** Crée le compte d'exemple s'il n'existe pas encore sur cet appareil. */
+/** Ouvre (ou crée) le compte d'exemple « Chez Afi ». */
 export async function ensureSampleUser(): Promise<LocalUserRecord> {
-  const existing = await getUserByPhone(SAMPLE_ACCOUNT.phone);
-  if (existing) {
-    // Compte créé par une version précédente : on complète le nom de la personne.
-    if (!existing.profile.nom_personne) {
-      return updateUserProfile(existing.id, { nom_personne: SAMPLE_ACCOUNT.profile.nom_personne });
+  const { phone, password, profile } = SAMPLE_ACCOUNT;
+  if (cloudEnabled && isOnline()) {
+    let id: string;
+    try {
+      id = await cloudSignIn(phone, password);
+    } catch (err) {
+      if (isNetworkError(err)) throw err;
+      id = await cloudSignUp(phone, password);
     }
-    return existing;
+    const existing = await getUserById(id);
+    if (existing) return existing;
+    const cloud = await fetchCloudProfile(id);
+    const { phone: _p, ...cloudProfile } = cloud ?? {};
+    return createLocalRecord(id, phone, password, { ...newProfile(phone, profile), ...cloudProfile } as Omit<Profile, 'id'>, true);
   }
-  const now = new Date().toISOString();
-  const salt = randomHex();
-  const record: LocalUserRecord = {
-    id: SAMPLE_ACCOUNT.id,
-    phone: SAMPLE_ACCOUNT.phone,
-    salt,
-    password_hash: await hashPassword(SAMPLE_ACCOUNT.password, salt),
-    is_demo: true,
-    profile: {
-      nom_personne: SAMPLE_ACCOUNT.profile.nom_personne,
-      nom_commerce: SAMPLE_ACCOUNT.profile.nom_commerce,
-      telephone: SAMPLE_ACCOUNT.phone,
-      adresse: SAMPLE_ACCOUNT.profile.adresse,
-      quartier: SAMPLE_ACCOUNT.profile.quartier,
-      default_margin: SAMPLE_ACCOUNT.profile.default_margin,
-      created_at: now,
-      updated_at: now,
-    },
-    created_at: now,
-  };
-  await putUser(record);
-  return record;
+  const existing = await getUserByPhone(phone);
+  if (existing) return existing;
+  return createLocalRecord(crypto.randomUUID(), phone, password, newProfile(phone, profile), true);
 }

@@ -220,7 +220,7 @@ export async function seedSampleData(ownerId: string): Promise<boolean> {
     const id = `${ownerId}-r${String(n).padStart(2, '0')}`;
     const items = s.items.map((it, i) => ({ ...it, id: `${id}-${i}`, invoice_id: id }));
     const total = items.reduce((sum, it) => sum + Number(it.total_price), 0);
-    const photo_path = await putPhoto(`${ownerId}-${id}`, receiptImage(s.supplier, dateLabel(s.iso), items, total));
+    const photo_path = await putPhoto(`${ownerId}-${id}`, receiptImage(s.supplier, dateLabel(s.iso), items, total), ownerId);
     invoices.push({
       id,
       owner_id: ownerId,
@@ -242,7 +242,7 @@ export async function seedSampleData(ownerId: string): Promise<boolean> {
   await putProductPrices(ownerId, buildPrices(invoices));
   await putSetting(ownerId, 'default_margin', DEFAULT_MARGIN);
 
-  const avatar_path = await putPhoto(`avatar-${ownerId}`, avatarImage());
+  const avatar_path = await putPhoto(`avatar-${ownerId}`, avatarImage(), ownerId);
   await updateUserProfile(ownerId, { avatar_path });
   return true;
 }

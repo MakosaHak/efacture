@@ -70,7 +70,7 @@ export async function fetchInvoice(id: string): Promise<Invoice | null> {
 
 export async function saveScannedInvoice(ownerId: string, file: Blob, ocr: OCRResult): Promise<string> {
   const invoiceId = crypto.randomUUID();
-  const photo_path = await putPhoto(`${ownerId}-${invoiceId}`, file);
+  const photo_path = await putPhoto(`${ownerId}-${invoiceId}`, file, ownerId);
   const now = new Date().toISOString();
 
   const items: InvoiceItem[] = ocr.items.map((item, idx) => ({
@@ -166,7 +166,8 @@ export async function rejectInvoice(invoiceId: string): Promise<void> {
 }
 
 export async function deleteInvoice(invoiceId: string, photoPath: string): Promise<void> {
-  if (photoPath) await removePhoto(photoPath);
+  const existing = await repoGetInvoice(invoiceId);
+  if (photoPath) await removePhoto(photoPath, existing?.owner_id);
   await removeInvoice(invoiceId);
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, ChevronDown, ChevronUp, Download, HardDrive, KeyRound, LogOut, Trash2 } from 'lucide-react';
+import { Camera, ChevronDown, ChevronUp, CloudOff, Cloud, Download, HardDrive, KeyRound, LogOut, RefreshCw, Trash2 } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card, SectionTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -24,7 +24,7 @@ function currentMonthValue(): string {
 }
 
 export default function ProfilePage() {
-  const { user, profile, signOut, updateProfile, updateAvatar, removeAvatar, changePassword } = useAuth();
+  const { user, profile, signOut, updateProfile, updateAvatar, removeAvatar, changePassword, sync, cloudEnabled, syncNow } = useAuth();
   const { canInstall, isInstalled, isIos, install } = usePwaInstall();
   const navigate = useNavigate();
   const avatarInput = useRef<HTMLInputElement>(null);
@@ -255,12 +255,43 @@ export default function ProfilePage() {
         <SectionTitle>Application</SectionTitle>
         <div className="space-y-2">
           <PwaInstallBanner canInstall={canInstall} isInstalled={isInstalled} isIos={isIos} onInstall={() => install()} />
-          <Notice tone="neutral">
-            <span className="flex items-start gap-2">
-              <HardDrive size={16} className="mt-0.5 shrink-0" />
-              <span>Vos reçus, photos et prix sont enregistrés sur cet appareil uniquement. Pensez à exporter chaque mois.</span>
-            </span>
-          </Notice>
+          {cloudEnabled ? (
+            <Card padding="sm" className="flex items-center gap-3">
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] ${sync.status === 'error' ? 'bg-danger-soft text-danger' : sync.status === 'offline' ? 'bg-amber-soft text-amber' : 'bg-success-soft text-success'}`}>
+                {sync.status === 'offline' ? <CloudOff size={18} /> : <Cloud size={18} />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] font-medium text-ink">
+                  {sync.status === 'syncing'
+                    ? 'Synchronisation en cours…'
+                    : sync.status === 'offline'
+                      ? 'Hors connexion'
+                      : sync.status === 'error'
+                        ? 'Synchronisation en erreur'
+                        : sync.pending > 0
+                          ? `${sync.pending} élément${sync.pending > 1 ? 's' : ''} à envoyer`
+                          : 'Synchronisé avec le cloud'}
+                </p>
+                <p className="truncate text-xs text-muted">
+                  {sync.status === 'error' && sync.error
+                    ? sync.error
+                    : sync.lastSyncAt
+                      ? `Dernière synchronisation : ${new Date(sync.lastSyncAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                      : 'Vos données sont aussi sauvegardées en ligne et retrouvées sur vos autres appareils.'}
+                </p>
+              </div>
+              <button type="button" onClick={() => void syncNow()} className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface-2" aria-label="Synchroniser maintenant" disabled={sync.status === 'syncing'}>
+                <RefreshCw size={16} className={sync.status === 'syncing' ? 'animate-spin' : ''} />
+              </button>
+            </Card>
+          ) : (
+            <Notice tone="neutral">
+              <span className="flex items-start gap-2">
+                <HardDrive size={16} className="mt-0.5 shrink-0" />
+                <span>Vos reçus, photos et prix sont enregistrés sur cet appareil uniquement. Pensez à exporter chaque mois.</span>
+              </span>
+            </Notice>
+          )}
         </div>
       </section>
 

@@ -17,7 +17,7 @@ function monthLabel(ym: string): string {
 }
 
 export default function PriceComparePage() {
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const [products, setProducts] = useState<TopProduct[]>([]);
   const [selected, setSelected] = useState('');
   const [period, setPeriod] = useState(6);
@@ -31,7 +31,7 @@ export default function PriceComparePage() {
       if (p[0]) setSelected(p[0].product_name);
     });
     getSpendingBySupplier(user.id).then(setSpending);
-  }, [user]);
+  }, [user, dataVersion]);
 
   useEffect(() => {
     if (!user || !selected) return;

@@ -31,7 +31,7 @@ function greetingWord(): string {
 }
 
 export default function DashboardPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, dataVersion } = useAuth();
   const [kpis, setKpis] = useState({ total_spent: 0, invoice_count: 0, avg_amount: 0 });
   const [recent, setRecent] = useState<Invoice[]>([]);
   const [pending, setPending] = useState<Invoice[]>([]);
@@ -69,7 +69,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, dataVersion]);
 
   const shopName = profile?.nom_commerce?.trim() || 'Mon commerce';
   const firstName = (profile?.nom_personne || '').trim().split(/\s+/)[0] || '';

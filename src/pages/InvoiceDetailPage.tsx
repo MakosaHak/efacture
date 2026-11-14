@@ -16,7 +16,7 @@ import type { Invoice } from '../types/invoice';
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const navigate = useNavigate();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,7 +37,7 @@ export default function InvoiceDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, dataVersion]);
 
   useEffect(() => {
     if (!user) return;

@@ -35,7 +35,7 @@ function monthTitle(key: string): string {
 }
 
 export default function InvoiceListPage() {
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const [params, setParams] = useSearchParams();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +54,7 @@ export default function InvoiceListPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, search, status]);
+  }, [user, search, status, dataVersion]);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);

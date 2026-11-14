@@ -21,7 +21,7 @@ function trendLabel(pct: number): string {
 }
 
 export default function ForecastPage() {
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const [spend, setSpend] = useState<SpendingForecast | null>(null);
   const [products, setProducts] = useState<ProductForecast[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +33,7 @@ export default function ForecastPage() {
       setProducts(p);
       setLoading(false);
     });
-  }, [user]);
+  }, [user, dataVersion]);
 
   const chartData = spend
     ? [

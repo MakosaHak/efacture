@@ -19,7 +19,7 @@ import type { PriceSuggestion, ProductPrice } from '../types/invoice';
 const pct = (m: number) => `${(m * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`;
 
 export default function SellingPricesPage() {
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const [rows, setRows] = useState<PriceSuggestion[]>([]);
   const [confirmed, setConfirmed] = useState<ProductPrice[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -45,7 +45,7 @@ export default function SellingPricesPage() {
       setError(err instanceof Error ? err.message : 'Chargement impossible');
       setLoading(false);
     });
-  }, [reload]);
+  }, [reload, dataVersion]);
 
   const priceOf = (r: PriceSuggestion) => {
     const d = drafts[r.product_key];
