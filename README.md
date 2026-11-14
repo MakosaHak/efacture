@@ -163,10 +163,10 @@ L'application est livrée avec le compte d'une vraie boutique d'exemple, **Chez 
 
 | | |
 |---|---|
-| Téléphone | `90 45 12 78` |
-| Mot de passe | `afi2026` |
+| Téléphone | `71 79 50 74` |
+| Mot de passe | `12345678` |
 
-Sur l'écran de connexion, **Ouvrir la boutique « Chez Afi »** crée ce compte sur l'appareil (une seule fois) et l'ouvre. Les modifications faites ensuite sont conservées comme pour n'importe quel compte.
+Elle se connecte comme n'importe quelle utilisatrice. À sa première connexion, le compte est créé (côté Supabase si configuré) et ses reçus d'exemple sont insérés une seule fois ; ensuite tout est conservé comme pour n'importe quel compte.
 
 ---
 

@@ -90,11 +90,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id]);
 
+  /** Compte d'Afi : ses reçus d'exemple sont créés une seule fois, lors de sa première connexion. */
+  const seedIfSample = useCallback(async (record: LocalUserRecord) => {
+    if (!record.is_demo) return false;
+    if (cloudEnabled) {
+      await startSync(record.id);
+      if ((await countCloudInvoices(record.id)) > 0) return false;
+    }
+    return seedSampleData(record.id);
+  }, []);
+
   const signInWithPhonePassword = useCallback(
     async (phone: string, password: string) => {
-      apply(await authSignIn(phone, password));
+      const record = await authSignIn(phone, password);
+      saveSession(record.id);
+      const seeded = await seedIfSample(record);
+      apply((await getUserById(record.id)) ?? record);
+      if (seeded) setDataVersion((v) => v + 1);
     },
-    [apply],
+    [apply, seedIfSample],
   );
 
   const signUpWithPhonePassword = useCallback(

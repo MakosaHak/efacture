@@ -17,8 +17,8 @@ const SESSION_KEY = 'efacture-session';
 
 /** Compte d'exemple livré avec l'application (une vraie boutique, données réalistes). */
 export const SAMPLE_ACCOUNT = {
-  phone: '90451278',
-  password: 'afi2026',
+  phone: '71795074',
+  password: '12345678',
   profile: {
     nom_commerce: 'Chez Afi, Alimentation Générale',
     nom_personne: 'Afi KOUMAKO',
@@ -141,9 +141,18 @@ export async function signIn(phoneRaw: string, password: string): Promise<LocalU
   if (!validateTogoPhone(phoneRaw)) throw new Error('Numéro togolais invalide (ex : 90 12 34 56).');
   const phone = normalizePhoneDigits(phoneRaw);
 
+  const isSample = phone === SAMPLE_ACCOUNT.phone && password === SAMPLE_ACCOUNT.password;
+
   if (cloudEnabled && isOnline()) {
     try {
-      const id = await cloudSignIn(phone, password);
+      let id: string;
+      try {
+        id = await cloudSignIn(phone, password);
+      } catch (err) {
+        // Le compte d'Afi n'existe pas encore côté cloud : on le crée à sa première connexion.
+        if (isSample && !isNetworkError(err)) id = await cloudSignUp(phone, password);
+        else throw err;
+      }
       const existing = await getUserById(id);
       if (existing) {
         // Mot de passe peut-être changé sur un autre appareil : on réaligne le hachage local.
@@ -154,8 +163,8 @@ export async function signIn(phoneRaw: string, password: string): Promise<LocalU
       }
       const cloud = await fetchCloudProfile(id);
       const { phone: _p, ...cloudProfile } = cloud ?? {};
-      const profile = { ...newProfile(phone, {}), ...cloudProfile };
-      return createLocalRecord(id, phone, password, profile as Omit<Profile, 'id'>);
+      const profile = { ...newProfile(phone, isSample ? SAMPLE_ACCOUNT.profile : {}), ...cloudProfile };
+      return createLocalRecord(id, phone, password, profile as Omit<Profile, 'id'>, isSample);
     } catch (err) {
       if (!isNetworkError(err)) throw err;
       // Réseau indisponible : repli sur le compte local s'il existe.
@@ -163,6 +172,9 @@ export async function signIn(phoneRaw: string, password: string): Promise<LocalU
   }
 
   const record = await getUserByPhone(phone);
+  if (!record && isSample) {
+    return createLocalRecord(crypto.randomUUID(), phone, password, newProfile(phone, SAMPLE_ACCOUNT.profile), true);
+  }
   if (!record) {
     throw new Error(
       cloudEnabled ? 'Connexion internet nécessaire pour la première connexion sur cet appareil.' : 'Aucun compte avec ce numéro sur cet appareil.',
