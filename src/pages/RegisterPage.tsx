@@ -11,6 +11,7 @@ import { DEFAULT_MARGIN } from '../lib/pricing';
 export default function RegisterPage() {
   const { user, loading: authLoading, signUpWithPhonePassword } = useAuth();
   const navigate = useNavigate();
+  const [nomPersonne, setNomPersonne] = useState('');
   const [nomCommerce, setNomCommerce] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -31,6 +32,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await signUpWithPhonePassword(phone, password, {
+        nom_personne: nomPersonne.trim(),
         nom_commerce: nomCommerce.trim(),
         telephone: phone,
         adresse: '',
@@ -61,6 +63,14 @@ export default function RegisterPage() {
           </p>
 
           <form onSubmit={handleRegister} className="space-y-4">
+            <Input
+              label="Votre nom"
+              value={nomPersonne}
+              onChange={(e) => setNomPersonne(e.target.value)}
+              placeholder="Ex. : Afi KOUMAKO"
+              autoComplete="name"
+              required
+            />
             <Input
               label="Nom du commerce"
               value={nomCommerce}

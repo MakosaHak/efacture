@@ -4,7 +4,7 @@ import type { AuthUser, LocalUserRecord, ProfileInput } from '../types/auth';
 import {
   changePassword as authChangePassword,
   clearSession,
-  ensureDemoUser,
+  ensureSampleUser,
   restoreSession,
   saveSession,
   signIn as authSignIn,
@@ -13,20 +13,22 @@ import {
   toProfile,
   updateUserProfile,
 } from '../lib/auth/local-auth';
-import { seedDemoData } from '../lib/demo/seed';
+import { seedSampleData } from '../lib/demo/seed';
 import { requestPersistentStorage } from '../lib/db/local-db';
+import { putPhoto, removePhoto } from '../lib/db/repo';
 import { normalizePhoneDigits, validateTogoPhone } from '../lib/auth/phone-auth';
 
 interface AuthContextValue {
   user: AuthUser | null;
   profile: Profile | null;
   loading: boolean;
-  isDemo: boolean;
   signInWithPhonePassword: (phone: string, password: string) => Promise<void>;
   signUpWithPhonePassword: (phone: string, password: string, profile: ProfileInput) => Promise<void>;
   updateProfile: (data: ProfileInput) => Promise<void>;
+  updateAvatar: (blob: Blob) => Promise<void>;
+  removeAvatar: () => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
-  signInDemo: () => Promise<void>;
+  signInSample: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -35,13 +37,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const apply = useCallback((record: LocalUserRecord) => {
     setUser(toAuthUser(record));
     setProfile(toProfile(record));
-    setIsDemo(Boolean(record.is_demo));
     saveSession(record.id);
   }, []);
 
@@ -53,7 +53,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (record) {
           setUser(toAuthUser(record));
           setProfile(toProfile(record));
-          setIsDemo(Boolean(record.is_demo));
         }
       })
       .catch(() => undefined)
@@ -91,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         telephone = normalizePhoneDigits(telephone);
       }
       const record = await updateUserProfile(user.id, {
+        nom_personne: (data.nom_personne || '').trim(),
         nom_commerce,
         telephone,
         adresse: data.adresse.trim(),
@@ -101,6 +101,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const updateAvatar = useCallback(
+    async (blob: Blob) => {
+      if (!user) throw new Error('Non connecté.');
+      // Un identifiant différent à chaque fois : les vignettes déjà affichées ne sont pas réutilisées à tort.
+      const avatar_path = await putPhoto(`avatar-${user.id}-${Date.now()}`, blob);
+      const previous = profile?.avatar_path;
+      const record = await updateUserProfile(user.id, { avatar_path });
+      if (previous) await removePhoto(previous);
+      setProfile(toProfile(record));
+    },
+    [user, profile?.avatar_path],
+  );
+
+  const removeAvatar = useCallback(async () => {
+    if (!user) throw new Error('Non connecté.');
+    const previous = profile?.avatar_path;
+    const record = await updateUserProfile(user.id, { avatar_path: undefined });
+    if (previous) await removePhoto(previous);
+    setProfile(toProfile(record));
+  }, [user, profile?.avatar_path]);
+
   const changePassword = useCallback(
     async (current: string, next: string) => {
       if (!user) throw new Error('Non connecté.');
@@ -109,17 +130,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
-  const signInDemo = useCallback(async () => {
-    const record = await ensureDemoUser();
-    await seedDemoData(record.id);
-    apply(record);
+  const signInSample = useCallback(async () => {
+    const record = await ensureSampleUser();
+    await seedSampleData(record.id);
+    const fresh = (await restoreSessionFor(record.id)) ?? record;
+    apply(fresh);
   }, [apply]);
 
   const signOut = useCallback(async () => {
     clearSession();
     setUser(null);
     setProfile(null);
-    setIsDemo(false);
   }, []);
 
   const value = useMemo(
@@ -127,18 +148,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       profile,
       loading,
-      isDemo,
       signInWithPhonePassword,
       signUpWithPhonePassword,
       updateProfile,
+      updateAvatar,
+      removeAvatar,
       changePassword,
-      signInDemo,
+      signInSample,
       signOut,
     }),
-    [user, profile, loading, isDemo, signInWithPhonePassword, signUpWithPhonePassword, updateProfile, changePassword, signInDemo, signOut],
+    [user, profile, loading, signInWithPhonePassword, signUpWithPhonePassword, updateProfile, updateAvatar, removeAvatar, changePassword, signInSample, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/** Relit le compte après le seed (la photo de profil vient d'être ajoutée). */
+async function restoreSessionFor(id: string): Promise<LocalUserRecord | null> {
+  saveSession(id);
+  return restoreSession();
 }
 
 export function useAuth() {

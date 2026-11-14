@@ -8,7 +8,7 @@
 @theme {
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --color-bg: #f3f4f6;
+  --color-bg: #f4f6f9;
   --color-surface: #ffffff;
   --color-surface-2: #f9fafb;
   --color-line: #e5e7eb;
@@ -30,6 +30,16 @@
   --color-warning-soft: #fff7ed;
   --color-danger: #b91c1c;
   --color-danger-soft: #fef2f2;
+
+  /* Teintes d'accompagnement : tuiles d'icônes, badges, graphiques */
+  --color-teal: #0f766e;
+  --color-teal-soft: #e6f6f4;
+  --color-violet: #6d28d9;
+  --color-violet-soft: #f1ecfb;
+  --color-rose: #be123c;
+  --color-rose-soft: #fdeef2;
+  --color-amber: #b45309;
+  --color-amber-soft: #fff3e0;
 
   --radius-card: 14px;
   --radius-control: 12px;

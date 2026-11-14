@@ -17,7 +17,7 @@ Application web progressive (PWA) pour les commerçants de Lomé : photographier
 - [Authentification](#authentification)
 - [Parcours scan d'un reçu](#parcours-scan-dun-reçu)
 - [Prix de vente suggérés](#prix-de-vente-suggérés)
-- [Compte de démonstration](#compte-de-démonstration)
+- [Compte d'exemple « Chez Afi »](#compte-dexemple--chez-afi-)
 - [PWA (installation)](#pwa-installation)
 - [Installation locale](#installation-locale)
 - [Déploiement](#déploiement)
@@ -132,9 +132,16 @@ Code : `src/lib/pricing.ts` (calculs purs), `src/lib/productPrices.ts` (persista
 
 ---
 
-## Compte de démonstration
+## Compte d'exemple « Chez Afi »
 
-Sur l'écran de connexion, **Découvrir avec des données d'exemple** ouvre un compte de démonstration (téléphone `90 00 00 00`, mot de passe `demo`) et insère une fois des reçus d'exemple sur trois mois. Les modifications faites ensuite sont conservées comme pour n'importe quel compte.
+L'application est livrée avec le compte d'une vraie boutique d'exemple, **Chez Afi, Alimentation Générale** (marché d'Assivito, Lomé), tenue par Afi KOUMAKO : quatre mois d'achats chez quatre fournisseurs, un reçu à vérifier, un reçu rejeté, des prix de vente confirmés et d'autres à confirmer, et une photo de profil modifiable depuis la page Compte.
+
+| | |
+|---|---|
+| Téléphone | `90 45 12 78` |
+| Mot de passe | `afi2026` |
+
+Sur l'écran de connexion, **Ouvrir la boutique « Chez Afi »** crée ce compte sur l'appareil (une seule fois) et l'ouvre. Les modifications faites ensuite sont conservées comme pour n'importe quel compte.
 
 ---
 
@@ -189,7 +196,7 @@ src/
   lib/
     auth/          authentification locale, format téléphone
     db/            IndexedDB (local-db.ts) et accès par entité (repo.ts)
-    demo/          jeu de données d'exemple
+    demo/          jeu de données du compte d'exemple « Chez Afi »
     ocr/           Tesseract.js, prétraitement image, analyse du texte
     invoices.ts    CRUD reçus + indicateurs, prévisions, optimisation
     productPrices.ts prix de vente suggérés

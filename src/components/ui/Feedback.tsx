@@ -86,15 +86,38 @@ export function EmptyState({
   );
 }
 
+export type TileTone = 'neutral' | 'blue' | 'green' | 'amber' | 'violet' | 'rose' | 'teal';
+
+const tileTones: Record<TileTone, string> = {
+  neutral: 'bg-surface-2 text-ink-2',
+  blue: 'bg-primary-soft text-primary',
+  green: 'bg-success-soft text-success',
+  amber: 'bg-amber-soft text-amber',
+  violet: 'bg-violet-soft text-violet',
+  rose: 'bg-rose-soft text-rose',
+  teal: 'bg-teal-soft text-teal',
+};
+
+/** Pastille carrée colorée autour d'une icône. */
+export function IconTile({ icon: Icon, tone = 'neutral', size = 40 }: { icon: LucideIcon; tone?: TileTone; size?: number }) {
+  return (
+    <div className={`flex shrink-0 items-center justify-center rounded-[12px] ${tileTones[tone]}`} style={{ width: size, height: size }}>
+      <Icon size={Math.round(size * 0.47)} />
+    </div>
+  );
+}
+
 /** Ligne cliquable (icône, texte, chevron) pour listes et menus. */
 export function ListRow({
   icon: Icon,
+  tone = 'neutral',
   title,
   subtitle,
   trailing,
   className = '',
 }: {
   icon?: LucideIcon;
+  tone?: TileTone;
   title: ReactNode;
   subtitle?: ReactNode;
   trailing?: ReactNode;
@@ -102,11 +125,7 @@ export function ListRow({
 }) {
   return (
     <div className={`flex items-center gap-3 ${className}`}>
-      {Icon && (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-2 text-ink-2">
-          <Icon size={18} />
-        </div>
-      )}
+      {Icon && <IconTile icon={Icon} tone={tone} />}
       <div className="min-w-0 flex-1">
         <div className="truncate text-[15px] font-medium text-ink">{title}</div>
         {subtitle && <div className="mt-0.5 truncate text-[13px] text-muted">{subtitle}</div>}

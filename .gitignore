@@ -44,3 +44,7 @@ Thumbs.db
 # Supabase CLI (local)
 .supabase/
 .claude/
+
+# Exports téléchargés pendant les tests
+efacture-*.pdf
+efacture-*.csv

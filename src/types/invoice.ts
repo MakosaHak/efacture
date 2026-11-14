@@ -2,12 +2,16 @@ export type InvoiceStatus = 'pending' | 'validated' | 'rejected';
 
 export interface Profile {
   id: string;
+  /** Nom de la personne qui tient le commerce (ex. « Afi KOUMAKO »). */
+  nom_personne?: string;
   nom_commerce: string;
   telephone: string;
   adresse: string;
   quartier: string;
   /** Marge globale par défaut (0.15 = 15 %). */
   default_margin?: number;
+  /** Chemin local de la photo de profil (voir repo.putPhoto). */
+  avatar_path?: string;
   created_at: string;
   updated_at: string;
 }

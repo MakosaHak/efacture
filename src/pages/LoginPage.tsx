@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, HardDrive } from 'lucide-react';
+import { Eye, EyeOff, HardDrive, Store } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -10,7 +10,7 @@ import { PwaInstallBanner } from '../components/pwa/PwaInstallBanner';
 import { usePwaInstall } from '../hooks/usePwaInstall';
 
 export default function LoginPage() {
-  const { user, loading: authLoading, signInWithPhonePassword, signInDemo } = useAuth();
+  const { user, loading: authLoading, signInWithPhonePassword, signInSample } = useAuth();
   const { canInstall, isInstalled, isIos, install } = usePwaInstall();
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
@@ -18,7 +18,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
+  const [sampleLoading, setSampleLoading] = useState(false);
 
   if (!authLoading && user) return <Navigate to="/" replace />;
 
@@ -36,16 +36,16 @@ export default function LoginPage() {
     }
   };
 
-  const handleDemo = async () => {
+  const handleSample = async () => {
     setError('');
-    setDemoLoading(true);
+    setSampleLoading(true);
     try {
-      await signInDemo();
+      await signInSample();
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ouverture impossible');
     } finally {
-      setDemoLoading(false);
+      setSampleLoading(false);
     }
   };
 
@@ -112,9 +112,20 @@ export default function LoginPage() {
           </p>
         </Card>
 
-        <Button type="button" variant="secondary" fullWidth onClick={handleDemo} loading={demoLoading}>
-          Découvrir avec des données d’exemple
-        </Button>
+        <button
+          type="button"
+          onClick={handleSample}
+          disabled={sampleLoading}
+          className="flex w-full items-center gap-3 rounded-card border border-line bg-surface p-3 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-amber-soft text-amber">
+            <Store size={19} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14px] font-semibold text-ink">Ouvrir la boutique « Chez Afi »</span>
+            <span className="block text-xs text-muted">Compte d’exemple déjà rempli, pour essayer l’application</span>
+          </span>
+        </button>
 
         <p className="mt-6 flex items-start justify-center gap-2 px-2 text-center text-xs leading-relaxed text-muted">
           <HardDrive size={14} className="mt-0.5 shrink-0" />
