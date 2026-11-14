@@ -10,7 +10,7 @@ import { PwaInstallBanner } from '../components/pwa/PwaInstallBanner';
 import { usePwaInstall } from '../hooks/usePwaInstall';
 
 export default function LoginPage() {
-  const { user, loading: authLoading, signInWithPhonePassword } = useAuth();
+  const { user, loading: authLoading, signInWithPhonePassword, cloudEnabled } = useAuth();
   const { canInstall, isInstalled, isIos, install } = usePwaInstall();
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
@@ -102,7 +102,9 @@ export default function LoginPage() {
 
         <p className="mt-6 flex items-start justify-center gap-2 px-2 text-center text-xs leading-relaxed text-muted">
           <HardDrive size={14} className="mt-0.5 shrink-0" />
-          Vos reçus et vos photos restent enregistrés sur cet appareil, sans compte en ligne.
+          {cloudEnabled
+            ? 'Vos reçus et vos photos sont enregistrés sur cet appareil et sauvegardés sur votre compte : vous les retrouvez sur vos autres téléphones.'
+            : 'Vos reçus et vos photos restent enregistrés sur cet appareil, sans compte en ligne.'}
         </p>
       </div>
     </div>
