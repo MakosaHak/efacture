@@ -15,7 +15,7 @@ export const cloudEnabled = supabase !== null;
 export const PHOTO_BUCKET = 'receipt-photos';
 
 /** Domaine interne : le téléphone sert d'identifiant, Supabase veut un e-mail. */
-export const PHONE_EMAIL_DOMAIN = 'phone.e-facture.app';
+const PHONE_EMAIL_DOMAIN = 'phone.e-facture.app';
 
 export function phoneToEmail(digits: string): string {
   return `${digits}@${PHONE_EMAIL_DOMAIN}`;

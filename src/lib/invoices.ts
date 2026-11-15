@@ -199,19 +199,6 @@ export async function getSpendingTotals(ownerId: string): Promise<SpendingTotals
   return { day: sumSince(startDay), week: sumSince(startWeek), month: sumSince(startMonth) };
 }
 
-export async function getMonthOverMonthChange(ownerId: string): Promise<number> {
-  const now = new Date();
-  const startCurrent = startOfMonth(now);
-  const startPrev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const rows = await listValidatedInvoices(ownerId);
-  const cur = rows.filter((r) => new Date(r.created_at) >= startCurrent).reduce((s, r) => s + invoiceLandedTotal(r), 0);
-  const prev = rows
-    .filter((r) => new Date(r.created_at) >= startPrev && new Date(r.created_at) < startCurrent)
-    .reduce((s, r) => s + invoiceLandedTotal(r), 0);
-  if (prev <= 0) return cur <= 0 ? 0 : 100;
-  return ((cur - prev) / prev) * 100;
-}
-
 export async function getRecentPurchases(ownerId: string, limit = 5): Promise<Invoice[]> {
   return (await listValidatedInvoices(ownerId)).slice(0, limit);
 }

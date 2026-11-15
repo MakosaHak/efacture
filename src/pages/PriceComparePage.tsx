@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, LineChart as LineIcon } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card, SectionTitle } from '../components/ui/Card';
@@ -50,7 +50,7 @@ export default function PriceComparePage() {
       <AppHeader title="Évolution des prix" backTo="/" />
 
       {products.length === 0 ? (
-        <EmptyState icon={LineIcon} title="Pas encore d’historique" text="Validez quelques reçus avec des articles pour suivre l’évolution de leurs prix." />
+        <EmptyState illustration="chart" title="Pas encore d’historique" text="Revenez après quelques reçus." />
       ) : (
         <>
           <Card className="mb-3 space-y-3">

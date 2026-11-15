@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Lightbulb, ShoppingBag } from 'lucide-react';
+import { ChevronRight, Lightbulb } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card, SectionTitle } from '../components/ui/Card';
 import { EmptyState, Notice, Spinner } from '../components/ui/Feedback';
@@ -26,14 +26,10 @@ export default function OptimizePage() {
     <AppLayout>
       <AppHeader title="Conseil d’achat" backTo="/" />
 
-      <p className="mb-3 text-[13px] leading-relaxed text-muted">
-        Compare vos fournisseurs produit par produit, transport compris, et estime ce que vous auriez économisé en achetant au moins cher.
-      </p>
-
       {loading ? (
         <Spinner />
       ) : !opt ? (
-        <EmptyState icon={ShoppingBag} title="Pas encore de comparaison" text="Validez des reçus avec des articles et le nom du vendeur pour comparer vos fournisseurs." />
+        <EmptyState illustration="basket" title="Pas encore de comparaison" text="Indiquez le vendeur sur vos reçus." />
       ) : (
         <>
           {opt.recommendation && (
@@ -55,7 +51,7 @@ export default function OptimizePage() {
           <SectionTitle>Conseils</SectionTitle>
           {opt.unnamed_count > 0 && (
             <Notice tone="warning" className="mb-2">
-              {opt.unnamed_count} ligne{opt.unnamed_count > 1 ? 's' : ''} sans nom de fournisseur. Les totaux sont comptés, mais la comparaison ne porte que sur les vendeurs identifiés.
+              {opt.unnamed_count} ligne{opt.unnamed_count > 1 ? 's' : ''} sans nom de vendeur, non comparée{opt.unnamed_count > 1 ? 's' : ''}.
             </Notice>
           )}
           <Card padding="none" className="mb-4 divide-y divide-line">

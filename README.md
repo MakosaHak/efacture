@@ -47,7 +47,7 @@ Application web progressive (PWA) pour les commerçants de Lomé : photographier
 
 - **React 18 + TypeScript + Vite 6**
 - **Tailwind CSS v4** (design sobre : une couleur d'accent, surfaces blanches, bordures fines)
-- **lucide-react** pour les icônes
+- **lucide-react** pour les icônes, illustrations vectorielles maison (`src/components/ui/Illustration.tsx`)
 - **IndexedDB** (API native, sans dépendance) pour toutes les données
 - **Tesseract.js** pour l'OCR dans le navigateur
 - **Recharts** pour les courbes
@@ -65,7 +65,7 @@ Base IndexedDB `efacture`, cinq magasins :
 | `invoices` | Reçus avec leurs lignes d'articles (objet complet), indexés par propriétaire |
 | `photos` | Photos des reçus sous forme de `Blob` |
 | `product_prices` | Prix de vente suggérés / confirmés et marge apprise par produit |
-| `settings` | Réglages par compte (marge par défaut) |
+| `settings` | Réglages internes par compte (date du dernier rapatriement) |
 
 Chaque donnée est liée à un `owner_id` : plusieurs comptes peuvent coexister sur le même appareil sans voir les données des autres. Au démarrage, l'application demande au navigateur un **stockage persistant** pour éviter toute purge automatique.
 
@@ -143,7 +143,7 @@ Code : `src/lib/auth/local-auth.ts`, `src/context/AuthContext.tsx`.
 
 ### Principe
 
-Pour chaque article d'un reçu validé : `prix de vente = prix d'achat × (1 + marge)`, arrondi au multiple de 25 FCFA. La marge utilisée est la marge apprise du produit, sinon la marge habituelle du commerce (choisie dans Compte).
+Pour chaque article d'un reçu validé : `prix de vente = prix d'achat × (1 + marge)`, arrondi au multiple de 25 FCFA. La marge utilisée est la marge apprise du produit, sinon une marge de départ de 15 %. Rien à régler : l'application apprend des prix confirmés.
 
 ### Apprentissage
 
@@ -193,7 +193,6 @@ npm install
 npm run dev        # http://localhost:5173
 npm run build      # dossier dist/
 npm run preview    # prévisualiser le build
-npm run test:rules # vérification des règles de prix et de l'OCR
 ```
 
 ### Accès depuis le téléphone (même Wi-Fi)

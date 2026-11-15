@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ReceiptText, Search, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card } from '../components/ui/Card';
 import { EmptyState, Spinner } from '../components/ui/Feedback';
@@ -148,9 +148,9 @@ export default function InvoiceListPage() {
         <Spinner />
       ) : invoices.length === 0 ? (
         <EmptyState
-          icon={ReceiptText}
+          illustration={search || status ? 'empty' : 'receipt'}
           title={search || status ? 'Aucun reçu ne correspond' : 'Aucun reçu pour l’instant'}
-          text={search || status ? 'Modifiez la recherche ou le filtre.' : 'Scannez votre premier reçu depuis le bouton central.'}
+          text={search || status ? 'Changez le filtre.' : 'Scannez votre premier reçu.'}
           action={
             !search && !status ? (
               <Link to="/scanner" className="text-sm font-semibold text-primary">

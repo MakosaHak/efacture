@@ -137,7 +137,7 @@ export default function DashboardPage() {
                 icon={ClipboardCheck}
                 tone="amber"
                 title={`${pending.length} reçu${pending.length > 1 ? 's' : ''} à vérifier`}
-                subtitle="Confirmez les montants lus sur la photo"
+                subtitle="À confirmer"
                 trailing={<ChevronRight size={18} className="text-faint" />}
               />
             </Link>
@@ -148,7 +148,7 @@ export default function DashboardPage() {
                 icon={Tags}
                 tone="green"
                 title={`${pendingPrices} prix de vente à confirmer`}
-                subtitle="Suggestions d’après vos derniers achats"
+                subtitle="À confirmer"
                 trailing={<ChevronRight size={18} className="text-faint" />}
               />
             </Link>
@@ -167,7 +167,7 @@ export default function DashboardPage() {
           Derniers achats
         </SectionTitle>
         {recent.length === 0 ? (
-          <EmptyState icon={ShoppingBag} title="Aucun reçu validé" text="Scannez votre premier reçu : la photo et les montants seront enregistrés sur cet appareil." />
+          <EmptyState illustration="receipt" title="Aucun reçu pour l’instant" text="Scannez votre premier reçu." />
         ) : (
           <Card padding="none" className="divide-y divide-line">
             {recent.map((inv) => (

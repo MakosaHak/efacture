@@ -12,10 +12,7 @@ import { usePwaInstall } from '../hooks/usePwaInstall';
 import { useAuth } from '../context/AuthContext';
 import { getValidatedInvoicesForMonth } from '../lib/invoices';
 import { formatPhoneDisplay } from '../lib/auth/phone-auth';
-import { DEFAULT_MARGIN } from '../lib/pricing';
-import { getDefaultMargin, setDefaultMargin } from '../lib/productPrices';
 import { compressFile } from '../lib/ocr/image-utils';
-import { MarginPicker } from '../components/ui/MarginPicker';
 import { buildMonthlyPdf, downloadPdf, monthLabelFr } from '../lib/export-pdf';
 
 function currentMonthValue(): string {
@@ -38,7 +35,6 @@ export default function ProfilePage() {
   const [telephone, setTelephone] = useState('');
   const [adresse, setAdresse] = useState('');
   const [quartier, setQuartier] = useState('');
-  const [marge, setMarge] = useState(String(DEFAULT_MARGIN * 100));
   const [saving, setSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState('');
   const [profileError, setProfileError] = useState('');
@@ -56,13 +52,6 @@ export default function ProfilePage() {
     setAdresse(profile?.adresse || '');
     setQuartier(profile?.quartier || '');
   }, [profile]);
-
-  useEffect(() => {
-    if (!user) return;
-    getDefaultMargin(user.id)
-      .then((m) => setMarge(String(Math.round(m * 1000) / 10)))
-      .catch(() => undefined);
-  }, [user]);
 
   const handleAvatarFile = async (file: File) => {
     setAvatarMsg('');
@@ -86,7 +75,6 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       await updateProfile({ nom_personne: nomPersonne, nom_commerce: nomCommerce, telephone, adresse, quartier });
-      await setDefaultMargin(user.id, (marge.trim() === '' ? DEFAULT_MARGIN * 100 : Number(marge)) / 100);
       setProfileMsg('Modifications enregistrées.');
     } catch (err) {
       setProfileError(err instanceof Error ? err.message : 'Enregistrement impossible');
@@ -203,9 +191,6 @@ export default function ProfilePage() {
           <Input label="Téléphone affiché sur les exports" type="tel" inputMode="numeric" value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="90 12 34 56" />
           <Input label="Adresse" value={adresse} onChange={(e) => setAdresse(e.target.value)} placeholder="Marché Adawlato, Lomé" />
           <Input label="Quartier ou marché" value={quartier} onChange={(e) => setQuartier(e.target.value)} placeholder="Adawlato, Assivito…" />
-          <div className="border-t border-line pt-3">
-            <MarginPicker value={marge} onChange={setMarge} title="Ma marge habituelle" />
-          </div>
           {profileError && <Notice tone="danger">{profileError}</Notice>}
           {profileMsg && <Notice tone="success">{profileMsg}</Notice>}
           <Button type="submit" fullWidth loading={saving}>
@@ -217,7 +202,6 @@ export default function ProfilePage() {
       <section className="mb-4">
         <SectionTitle>Relevé mensuel</SectionTitle>
         <Card className="space-y-3">
-          <p className="text-[13px] leading-relaxed text-muted">Un PDF des reçus validés du mois : totaux, fournisseurs et articles. Pratique à garder ou à montrer à un comptable.</p>
           <Input label="Mois" type="month" value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
           <Button type="button" fullWidth loading={exporting} onClick={runExport}>
             <Download size={16} />
@@ -277,7 +261,7 @@ export default function ProfilePage() {
                     ? sync.error
                     : sync.lastSyncAt
                       ? `Dernière synchronisation : ${new Date(sync.lastSyncAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
-                      : 'Vos données sont aussi sauvegardées en ligne et retrouvées sur vos autres appareils.'}
+                      : 'Sauvegardé en ligne.'}
                 </p>
               </div>
               <button type="button" onClick={() => void syncNow()} className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface-2" aria-label="Synchroniser maintenant" disabled={sync.status === 'syncing'}>
@@ -288,7 +272,7 @@ export default function ProfilePage() {
             <Notice tone="neutral">
               <span className="flex items-start gap-2">
                 <HardDrive size={16} className="mt-0.5 shrink-0" />
-                <span>Vos reçus, photos et prix sont enregistrés sur cet appareil uniquement. Pensez à exporter chaque mois.</span>
+                <span>Données enregistrées sur cet appareil.</span>
               </span>
             </Notice>
           )}

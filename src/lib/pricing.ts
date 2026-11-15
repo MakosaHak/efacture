@@ -8,7 +8,7 @@ export const DEFAULT_MARGIN = 0.15;
 /** Pas d'arrondi des prix de vente (FCFA). */
 export const PRICE_STEP = 25;
 /** Seuil de hausse du prix d'achat (%) au-delà duquel la ligne est « à vérifier ». */
-export const PRICE_INCREASE_THRESHOLD_PCT = 10;
+const PRICE_INCREASE_THRESHOLD_PCT = 10;
 /** Poids de l'ancienne marge dans la moyenne mobile. */
 const MARGIN_MEMORY = 0.7;
 
@@ -18,7 +18,7 @@ const num = (v: unknown) => {
 };
 
 /** « Riz parfumé 25kg » et « riz  parfume 25 kg » → « riz parfume 25 kg ». */
-export function normalizeProductName(name: string): string {
+function normalizeProductName(name: string): string {
   return String(name || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -31,7 +31,7 @@ export function normalizeProductName(name: string): string {
 }
 
 /** Arrondi au multiple de `step` le plus proche (1237 → 1225). */
-export function roundToStep(price: number, step = PRICE_STEP): number {
+function roundToStep(price: number, step = PRICE_STEP): number {
   const p = num(price);
   return p <= 0 ? 0 : Math.round(p / step) * step;
 }

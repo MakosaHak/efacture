@@ -129,7 +129,7 @@ export default function ValidateInvoicePage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Vérifier le reçu" backTo="/factures" subtitle="Corrigez ce qui a été mal lu, puis validez" />
+      <AppHeader title="Vérifier le reçu" backTo="/factures" />
 
       <InvoicePhoto photoPath={invoice.photo_path} className="mb-3" />
 
@@ -139,7 +139,7 @@ export default function ValidateInvoicePage() {
         </Notice>
       ) : conf != null ? (
         <Notice tone="info" className="mb-3">
-          Lecture automatique, confiance {Math.round(conf * 100)} %. Vérifiez les champs avant de valider.
+          Lecture automatique à {Math.round(conf * 100)} %. Vérifiez les montants.
         </Notice>
       ) : null}
 
@@ -151,7 +151,7 @@ export default function ValidateInvoicePage() {
             onChange={(e) => setSupplier(e.target.value)}
             list="known-suppliers"
             placeholder="Nom du vendeur"
-            hint={!isNamedSupplier(supplier) ? 'Sans nom, le reçu apparaîtra comme « Sans fournisseur ». Vous pourrez le compléter plus tard.' : undefined}
+            hint={!isNamedSupplier(supplier) ? 'Vous pourrez le compléter plus tard.' : undefined}
           />
           <datalist id="known-suppliers">
             {knownSuppliers.map((name) => (
@@ -170,7 +170,6 @@ export default function ValidateInvoicePage() {
             placeholder="Ex. : 3000"
             value={transport}
             onChange={(e) => setTransport(e.target.value)}
-            hint="Taxi, moto, pousse-pousse… payé en plus du reçu."
           />
           <div className="flex items-center justify-between rounded-control bg-surface-2 px-3 py-2.5">
             <p className="text-[13px] text-muted">Coût total réel</p>

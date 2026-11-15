@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, HardDrive } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
+import { Illustration } from '../components/ui/Illustration';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -10,7 +11,7 @@ import { PwaInstallBanner } from '../components/pwa/PwaInstallBanner';
 import { usePwaInstall } from '../hooks/usePwaInstall';
 
 export default function LoginPage() {
-  const { user, loading: authLoading, signInWithPhonePassword, cloudEnabled } = useAuth();
+  const { user, loading: authLoading, signInWithPhonePassword } = useAuth();
   const { canInstall, isInstalled, isIos, install } = usePwaInstall();
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
@@ -39,12 +40,12 @@ export default function LoginPage() {
   return (
     <div className="min-h-dvh bg-bg px-5 pb-8 pt-10">
       <div className="mx-auto max-w-[400px]">
-        <div className="mb-8 text-center">
-          <img src="/icons/logo.png" alt="" className="mx-auto mb-3 h-16 w-auto object-contain" />
-          <h1 className="text-2xl font-bold tracking-tight text-ink">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <Illustration name="receipt" size={128} className="mb-3" />
+          <h1 className="text-[26px] font-extrabold tracking-tight text-ink">
             <span className="text-primary">e</span>facture
           </h1>
-          <p className="mt-1 text-sm text-muted">Scanner et gérer vos achats</p>
+          <p className="mt-1 text-sm text-muted">Mes achats, en photo</p>
         </div>
 
         {(canInstall || isIos) && !isInstalled && (
@@ -54,7 +55,7 @@ export default function LoginPage() {
         )}
 
         <Card>
-          <h2 className="mb-4 text-lg font-semibold text-ink">Connexion</h2>
+          <h2 className="mb-4 text-lg font-bold text-ink">Connexion</h2>
           <form onSubmit={handleLogin} className="space-y-4">
             <Input
               label="Numéro de téléphone"
@@ -100,12 +101,6 @@ export default function LoginPage() {
         </Card>
 
 
-        <p className="mt-6 flex items-start justify-center gap-2 px-2 text-center text-xs leading-relaxed text-muted">
-          <HardDrive size={14} className="mt-0.5 shrink-0" />
-          {cloudEnabled
-            ? 'Vos reçus et vos photos sont enregistrés sur cet appareil et sauvegardés sur votre compte : vous les retrouvez sur vos autres téléphones.'
-            : 'Vos reçus et vos photos restent enregistrés sur cet appareil, sans compte en ligne.'}
-        </p>
       </div>
     </div>
   );

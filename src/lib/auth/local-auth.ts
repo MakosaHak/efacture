@@ -236,25 +236,3 @@ export async function restoreSession(): Promise<LocalUserRecord | null> {
   }
   return record;
 }
-
-/** Ouvre (ou crée) le compte d'exemple « Chez Afi ». */
-export async function ensureSampleUser(): Promise<LocalUserRecord> {
-  const { phone, password, profile } = SAMPLE_ACCOUNT;
-  if (cloudEnabled && isOnline()) {
-    let id: string;
-    try {
-      id = await cloudSignIn(phone, password);
-    } catch (err) {
-      if (isNetworkError(err)) throw err;
-      id = await cloudSignUp(phone, password);
-    }
-    const existing = await getUserById(id);
-    if (existing) return existing;
-    const cloud = await fetchCloudProfile(id);
-    const { phone: _p, ...cloudProfile } = cloud ?? {};
-    return createLocalRecord(id, phone, password, { ...newProfile(phone, profile), ...cloudProfile } as Omit<Profile, 'id'>, true);
-  }
-  const existing = await getUserByPhone(phone);
-  if (existing) return existing;
-  return createLocalRecord(crypto.randomUUID(), phone, password, newProfile(phone, profile), true);
-}

@@ -4,7 +4,6 @@ import type { AuthUser, LocalUserRecord, ProfileInput } from '../types/auth';
 import {
   changePassword as authChangePassword,
   clearSession,
-  ensureSampleUser,
   restoreSession,
   saveSession,
   signIn as authSignIn,
@@ -35,7 +34,6 @@ interface AuthContextValue {
   updateAvatar: (blob: Blob) => Promise<void>;
   removeAvatar: () => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
-  signInSample: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -103,10 +101,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithPhonePassword = useCallback(
     async (phone: string, password: string) => {
       const record = await authSignIn(phone, password);
-      saveSession(record.id);
-      const seeded = await seedIfSample(record);
-      apply((await getUserById(record.id)) ?? record);
-      if (seeded) setDataVersion((v) => v + 1);
+      // L'écran s'affiche tout de suite ; la synchronisation et le jeu d'exemple suivent en arrière-plan.
+      apply(record);
+      void seedIfSample(record).then(async (seeded) => {
+        if (!seeded) return;
+        const fresh = await getUserById(record.id);
+        if (fresh) setProfile(toProfile(fresh));
+        setDataVersion((v) => v + 1);
+      });
     },
     [apply, seedIfSample],
   );
@@ -168,22 +170,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
-  const signInSample = useCallback(async () => {
-    const record = await ensureSampleUser();
-    saveSession(record.id);
-    if (cloudEnabled) {
-      // Les données existent peut-être déjà dans le cloud (autre appareil) : on les rapatrie avant de semer.
-      await startSync(record.id);
-      const already = await countCloudInvoices(record.id);
-      if (already === 0) await seedSampleData(record.id);
-    } else {
-      await seedSampleData(record.id);
-    }
-    const fresh = (await getUserById(record.id)) ?? record;
-    apply(fresh);
-    setDataVersion((v) => v + 1);
-  }, [apply]);
-
   const signOut = useCallback(async () => {
     stopSync();
     clearSession();
@@ -206,10 +192,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateAvatar,
       removeAvatar,
       changePassword,
-      signInSample,
       signOut,
     }),
-    [user, profile, loading, dataVersion, sync, signInWithPhonePassword, signUpWithPhonePassword, updateProfile, updateAvatar, removeAvatar, changePassword, signInSample, signOut],
+    [user, profile, loading, dataVersion, sync, signInWithPhonePassword, signUpWithPhonePassword, updateProfile, updateAvatar, removeAvatar, changePassword, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

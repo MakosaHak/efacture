@@ -6,7 +6,6 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Notice } from '../components/ui/Feedback';
-import { DEFAULT_MARGIN } from '../lib/pricing';
 
 export default function RegisterPage() {
   const { user, loading: authLoading, signUpWithPhonePassword } = useAuth();
@@ -37,7 +36,6 @@ export default function RegisterPage() {
         telephone: phone,
         adresse: '',
         quartier: quartier.trim(),
-        default_margin: DEFAULT_MARGIN,
       });
       navigate('/');
     } catch (err) {
@@ -58,10 +56,6 @@ export default function RegisterPage() {
         </div>
 
         <Card>
-          <p className="mb-4 text-[13px] leading-relaxed text-muted">
-            Un numéro de téléphone et un mot de passe suffisent. Le compte est enregistré sur cet appareil.
-          </p>
-
           <form onSubmit={handleRegister} className="space-y-4">
             <Input
               label="Votre nom"

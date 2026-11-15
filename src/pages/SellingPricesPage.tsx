@@ -1,29 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Tags } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card, SectionTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge, EmptyState, Notice, Spinner } from '../components/ui/Feedback';
 import { useAuth } from '../context/AuthContext';
 import { formatDate, formatFcfa } from '../lib/invoices';
-import {
-  acceptAllSuggestions,
-  confirmSellingPrice,
-  getDefaultMargin,
-  listAllProductPrices,
-  listPriceSuggestions,
-} from '../lib/productPrices';
+import { acceptAllSuggestions, confirmSellingPrice, listAllProductPrices, listPriceSuggestions } from '../lib/productPrices';
 import { PRICE_STEP } from '../lib/pricing';
 import type { PriceSuggestion, ProductPrice } from '../types/invoice';
-
-const pct = (m: number) => `${(m * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`;
 
 export default function SellingPricesPage() {
   const { user, dataVersion } = useAuth();
   const [rows, setRows] = useState<PriceSuggestion[]>([]);
   const [confirmed, setConfirmed] = useState<ProductPrice[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [defaultMargin, setDefaultMargin] = useState(0.15);
   const [showKnown, setShowKnown] = useState(false);
   const [showConfirmed, setShowConfirmed] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -33,9 +24,8 @@ export default function SellingPricesPage() {
 
   const reload = useCallback(async () => {
     if (!user) return;
-    const [list, margin, all] = await Promise.all([listPriceSuggestions(user.id), getDefaultMargin(user.id), listAllProductPrices(user.id)]);
+    const [list, all] = await Promise.all([listPriceSuggestions(user.id), listAllProductPrices(user.id)]);
     setRows(list);
-    setDefaultMargin(margin);
     setConfirmed(all.filter((r) => r.status === 'confirmed'));
     setLoading(false);
   }, [user]);
@@ -71,10 +61,9 @@ export default function SellingPricesPage() {
       const price = priceOf(r);
       const { margin, learned } = await confirmSellingPrice(user.id, r.product_key, price);
       setDrafts(({ [r.product_key]: _done, ...rest }) => rest);
-      const before = r.margin ?? defaultMargin;
       return learned && margin != null
-        ? `${r.product_name} : ${formatFcfa(price)} enregistré. Marge ${pct(before)} → ${pct(margin)}.`
-        : `${r.product_name} : ${formatFcfa(price)} enregistré (sous le prix d’achat, marge inchangée).`;
+        ? `${r.product_name} : ${formatFcfa(price)} enregistré.`
+        : `${r.product_name} : ${formatFcfa(price)} enregistré (sous le prix d’achat).`;
     });
 
   const acceptAll = () =>
@@ -110,7 +99,7 @@ export default function SellingPricesPage() {
           ) : (
             <strong className="text-ink">{formatFcfa(r.last_purchase_price)}</strong>
           )}
-          {' · '}marge {pct(r.margin ?? defaultMargin)} {r.margin == null ? '(habituelle)' : '(apprise)'}
+
         </p>
 
         <div className="flex items-end gap-2">
@@ -141,7 +130,7 @@ export default function SellingPricesPage() {
 
   return (
     <AppLayout>
-      <AppHeader title="Prix de vente" subtitle="Proposés d’après vos achats et votre marge" />
+      <AppHeader title="Prix de vente" />
 
       {message && (
         <Notice tone="success" className="mb-3">
@@ -160,7 +149,7 @@ export default function SellingPricesPage() {
         <div className={rows.length ? 'pb-24' : ''}>
           {rows.length === 0 && (
             <div className="mb-5">
-              <EmptyState icon={Tags} title="Aucun prix à confirmer" text="Après chaque reçu validé, un prix de vente vous est proposé pour chaque article." />
+              <EmptyState illustration="tags" title="Aucun prix à confirmer" text="Ils apparaîtront après vos prochains reçus." />
             </div>
           )}
 
@@ -204,7 +193,7 @@ export default function SellingPricesPage() {
                       <div className="min-w-0">
                         <p className="truncate text-[15px] font-medium text-ink">{p.product_name}</p>
                         <p className="text-[13px] text-muted">
-                          Acheté {formatFcfa(p.last_purchase_price)} · marge {pct(p.margin ?? defaultMargin)} · {formatDate(p.updated_at)}
+                          Acheté {formatFcfa(p.last_purchase_price)} · {formatDate(p.updated_at)}
                         </p>
                       </div>
                       <span className="shrink-0 text-[15px] font-semibold text-ink">{formatFcfa(p.selling_price ?? p.suggested_price)}</span>

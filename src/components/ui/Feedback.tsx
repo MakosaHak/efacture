@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Info, type LucideIcon, XCircle } from 'lucide-react';
+import { Illustration, type IllustrationName } from './Illustration';
 
 type Tone = 'info' | 'success' | 'warning' | 'danger' | 'neutral';
 
@@ -65,20 +66,26 @@ export function Spinner({ className = '' }: { className?: string }) {
 
 export function EmptyState({
   icon: Icon,
+  illustration,
   title,
   text,
   action,
 }: {
-  icon: LucideIcon;
+  icon?: LucideIcon;
+  illustration?: IllustrationName;
   title: string;
   text?: string;
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center rounded-card border border-dashed border-line-strong bg-surface px-5 py-8 text-center">
-      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-muted">
-        <Icon size={22} />
-      </div>
+    <div className="flex flex-col items-center rounded-card bg-surface px-5 py-8 text-center shadow-card">
+      {illustration ? (
+        <Illustration name={illustration} size={120} className="mb-3" />
+      ) : Icon ? (
+        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-muted">
+          <Icon size={22} />
+        </div>
+      ) : null}
       <p className="text-[15px] font-semibold text-ink">{title}</p>
       {text && <p className="mt-1 max-w-[260px] text-[13px] leading-relaxed text-muted">{text}</p>}
       {action && <div className="mt-4">{action}</div>}

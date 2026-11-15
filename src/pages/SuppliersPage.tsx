@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Store } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/Feedback';
@@ -23,7 +23,7 @@ export default function SuppliersPage() {
       <AppHeader title="Fournisseurs" backTo="/stats/prix" subtitle="Dépenses des 12 derniers mois" />
 
       {spending.length === 0 ? (
-        <EmptyState icon={Store} title="Aucun fournisseur" text="Les vendeurs apparaissent ici dès que vous validez des reçus." />
+        <EmptyState illustration="basket" title="Aucun fournisseur" text="Ils apparaîtront avec vos reçus." />
       ) : (
         <Card padding="none" className="divide-y divide-line">
           {spending.map((s) => (

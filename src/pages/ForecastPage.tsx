@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, TrendingUp } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AppLayout, AppHeader } from '../components/layout/AppLayout';
 import { Card, SectionTitle } from '../components/ui/Card';
@@ -46,14 +46,10 @@ export default function ForecastPage() {
     <AppLayout>
       <AppHeader title="Budget du mois prochain" backTo="/" />
 
-      <p className="mb-3 text-[13px] leading-relaxed text-muted">
-        Estimation à partir de la moyenne de vos trois derniers mois, ajustée de l’évolution récente de vos prix d’achat.
-      </p>
-
       {loading ? (
         <Spinner />
       ) : !spend ? (
-        <EmptyState icon={TrendingUp} title="Pas encore de prévision" text="Il faut au moins deux mois de reçus validés pour estimer le mois prochain." />
+        <EmptyState illustration="chart" title="Pas encore de prévision" text="Il faut deux mois de reçus." />
       ) : (
         <>
           <Card className="mb-3">
@@ -76,7 +72,7 @@ export default function ForecastPage() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <p className="mt-2 text-xs text-muted">Le dernier point est l’estimation du mois prochain.</p>
+            <p className="mt-2 text-xs text-muted">Dernier point : le mois prochain.</p>
           </Card>
         </>
       )}

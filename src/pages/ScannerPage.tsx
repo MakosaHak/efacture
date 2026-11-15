@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Camera, ImagePlus, ScanLine, X } from 'lucide-react';
+import { Camera, ImagePlus, X } from 'lucide-react';
+import { Illustration } from '../components/ui/Illustration';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { canRunOcr, compressFile, isMobileDevice, ocrMaxSide, OCR_SOURCE_QUALITY } from '../lib/ocr/image-utils';
@@ -178,13 +179,9 @@ export default function ScannerPage() {
 
       {screen === 'idle' && (
         <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-          <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-white/10">
-            <ScanLine size={36} />
-          </div>
-          <h2 className="mb-2 text-xl font-semibold">Photographiez le reçu</h2>
-          <p className="mb-8 text-sm leading-relaxed text-white/65">
-            Posez-le à plat, dans un endroit bien éclairé, et cadrez-le en entier. Les montants seront lus automatiquement.
-          </p>
+          <Illustration name="scan" size={150} className="mb-6" />
+          <h2 className="mb-2 text-xl font-bold">Photographiez le reçu</h2>
+          <p className="mb-8 text-sm text-white/65">À plat, bien éclairé, en entier.</p>
           <Button fullWidth size="lg" onClick={openCamera} className="mb-3 max-w-xs">
             <Camera size={20} />
             Ouvrir la caméra

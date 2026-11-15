@@ -2,7 +2,7 @@
  * Prix de vente suggérés — lecture/écriture dans la base locale.
  * Le calcul (pricing.ts) est pur ; ici on ne fait que persister.
  */
-import { listProductPrices, putProductPrices, getSetting, putSetting, getInvoice } from './db/repo';
+import { listProductPrices, putProductPrices, getSetting, getInvoice } from './db/repo';
 import {
   averagePurchasePrices,
   DEFAULT_MARGIN,
@@ -20,13 +20,6 @@ async function loadRows(ownerId: string, keys?: string[]): Promise<Map<string, P
 export async function getDefaultMargin(ownerId: string): Promise<number> {
   const v = await getSetting<number>(ownerId, 'default_margin');
   return typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_MARGIN;
-}
-
-export async function setDefaultMargin(ownerId: string, value: number): Promise<void> {
-  if (!Number.isFinite(value) || value < 0 || value > 1) {
-    throw new Error('Marge invalide (entre 0 et 100 %).');
-  }
-  await putSetting(ownerId, 'default_margin', value);
 }
 
 /**

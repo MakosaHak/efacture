@@ -8,8 +8,8 @@ const DESKTOP_QUALITY = 0.82;
  * Mesuré sur photos de tickets : à 480 px le texte est illisible, à 1200 px les zéros
  * deviennent des lettres ; vers 1600-2000 px la lecture est fiable.
  */
-export const OCR_MAX_MOBILE = 1600;
-export const OCR_MAX_DESKTOP = 2000;
+const OCR_MAX_MOBILE = 1600;
+const OCR_MAX_DESKTOP = 2000;
 /** Qualité JPEG de la photo source gardée pour l'OCR (les artefacts JPEG gênent la lecture). */
 export const OCR_SOURCE_QUALITY = 0.9;
 

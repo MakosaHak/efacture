@@ -93,14 +93,6 @@ export async function dbGet<T>(store: StoreName, key: IDBValidKey): Promise<T | 
   return value as T | undefined;
 }
 
-export async function dbGetAll<T>(store: StoreName): Promise<T[]> {
-  const db = await openDb();
-  const tx = db.transaction(store, 'readonly');
-  const rows = await request(tx.objectStore(store).getAll());
-  await done(tx);
-  return rows as T[];
-}
-
 export async function dbGetAllByIndex<T>(store: StoreName, index: string, value: IDBValidKey): Promise<T[]> {
   const db = await openDb();
   const tx = db.transaction(store, 'readonly');
@@ -138,14 +130,6 @@ export async function dbDelete(store: StoreName, key: IDBValidKey): Promise<void
   const tx = db.transaction(store, 'readwrite');
   tx.objectStore(store).delete(key);
   await done(tx);
-}
-
-export async function dbCount(store: StoreName): Promise<number> {
-  const db = await openDb();
-  const tx = db.transaction(store, 'readonly');
-  const n = await request(tx.objectStore(store).count());
-  await done(tx);
-  return n;
 }
 
 /** Demande au navigateur de ne pas purger le stockage (PWA installée). */

@@ -51,7 +51,7 @@ function todayISO(): string {
 }
 
 /** Montants FCFA : 360.250 / 360 250 / 33 500 → 360250, pas 360.25 */
-export function parseFcfa(value: string | number | undefined): number {
+function parseFcfa(value: string | number | undefined): number {
   let s = String(value ?? '').trim();
   if (!s) return 0;
   s = s.replace(/[^\d.,\s]/g, '').replace(/\s+/g, '');
@@ -79,7 +79,7 @@ export function parseFcfa(value: string | number | undefined): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-export function parseFrenchDate(text: string): string | null {
+function parseFrenchDate(text: string): string | null {
   const toISO = (year: string | number, month: string, day: string): string | null => {
     const m = parseInt(month, 10);
     const d = parseInt(day, 10);
@@ -130,7 +130,7 @@ const ZERO_LIKE = /[oOQDgGeEé]/g;
  * Corrige les confusions lettre/chiffre les plus courantes, uniquement en contexte numérique :
  * « 34 goo » → « 34 000 », « 73 75e » → « 73 750 », « 10 S 500 » → « 10 5 500 », « ©3 » → « 03 ».
  */
-export function normalizeOcrLine(line: string): string {
+function normalizeOcrLine(line: string): string {
   const fixed = line.replace(/[©@](?=\d)/g, '0').replace(/(?<=\d)[©@]/g, '0');
   const words = fixed.split(/(\s+)/);
   for (let i = 0; i < words.length; i++) {
@@ -163,7 +163,7 @@ function roundness(n: number): number {
  * Quantité × prix unitaire ≈ total mais pas exactement : un chiffre a été mal lu.
  * On garde la lecture la plus « ronde » (5 509 × 10 / 55 000 → 5 500 ; 3 200 × 20 / 64 009 → 64 000).
  */
-export function reconcileAmounts(qty: number, unitPrice: number, total: number): { unitPrice: number; total: number } {
+function reconcileAmounts(qty: number, unitPrice: number, total: number): { unitPrice: number; total: number } {
   if (qty <= 0 || Math.abs(qty * unitPrice - total) < 1) return { unitPrice, total };
   const fromTotal = total / qty;
   const fromPrice = qty * unitPrice;
@@ -518,7 +518,7 @@ function isBreakerLine(line: string): boolean {
 }
 
 /** Recolle les lignes OCR coupées (désignation d'un côté, Unité / montants de l'autre). */
-export function stitchOcrLines(lines: string[]): string[] {
+function stitchOcrLines(lines: string[]): string[] {
   const cleaned = lines
     .map((l) => l.replace(/[|│¦]/g, ' ').replace(/\s+/g, ' ').trim())
     .filter((l) => l.length > 0);
