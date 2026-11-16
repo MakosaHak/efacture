@@ -400,6 +400,14 @@ function scoreSupplierLine(line: string, index: number): number {
 }
 
 function pickSupplier(lines: string[]): string {
+  // Facture structurée : « Entreprise : ETS AFRICA BUSINESS   Nom / Entreprise : CLIENT ABC » → le premier nom.
+  for (const line of lines.slice(0, 25)) {
+    const m = line.match(/^(?:entreprise|fournisseur|vendeur|soci[ée]t[ée]|magasin|boutique)\s*[:：]\s*(.+)$/i);
+    if (m) {
+      const name = cleanSupplierName(m[1].split(/\s{2,}|\s+(?:nom|client|adresse|t[ée]l)/i)[0].trim());
+      if (name.length >= 3) return name;
+    }
+  }
   let best = '';
   let bestScore = 0;
   const header = lines.slice(0, 15);
@@ -503,7 +511,7 @@ function parseQtyPriceLine(line: string): OCRItem | null {
 }
 
 function looksLikeCompleteItem(line: string): boolean {
-  return Boolean(parseTableRow(line) || parseQtyPriceLine(line) || parseSimpleItem(line));
+  return Boolean(parseTableRow(line) || parseQtyPriceLine(line) || parseUnitTotalRow(line) || parseSimpleItem(line));
 }
 
 function hasTableAmounts(line: string): boolean {
@@ -582,14 +590,65 @@ function stitchOcrLines(lines: string[]): string[] {
   return out;
 }
 
+/**
+ * Ligne de tableau dont la quantité n'a pas été lue : « Ordinateur portable HP 250 000 500 000 ».
+ * On découpe la fin de ligne en deux montants (groupes de milliers de 3 chiffres) :
+ * le prix unitaire puis le total ; la quantité est leur rapport.
+ */
+function parseUnitTotalRow(line: string): OCRItem | null {
+  const tokens = digitTokens(line);
+  const n = tokens.length;
+  if (n < 2) return null;
+
+  // Montant formé des jetons [from..to] : le premier a 1 à 3 chiffres (ou est seul), les suivants exactement 3.
+  const amount = (from: number, to: number): number | null => {
+    if (to > from && tokens[from].raw.length > 3) return null;
+    for (let i = from + 1; i <= to; i++) if (tokens[i].raw.length !== 3) return null;
+    const value = parseInt(tokens.slice(from, to + 1).map((t) => t.raw).join(''), 10);
+    return Number.isFinite(value) ? value : null;
+  };
+
+  type Cand = { qty: number; unit: number; total: number; start: number; used: number };
+  const candidates: Cand[] = [];
+  for (let m = 1; m <= 3; m++) {
+    for (let k = 1; k <= 3; k++) {
+      if (k + m > n) continue;
+      const total = amount(n - m, n - 1);
+      const unit = amount(n - m - k, n - m - 1);
+      if (total == null || unit == null) continue;
+      if (unit < 50 || total < unit || total > 50_000_000) continue;
+      if (total % unit !== 0) continue;
+      const qty = total / unit;
+      if (qty < 1 || qty > 999) continue;
+      candidates.push({ qty, unit, total, start: tokens[n - m - k].index, used: k + m });
+    }
+  }
+  if (!candidates.length) return null;
+  // On préfère la lecture qui consomme toute la fin numérique de la ligne.
+  candidates.sort((a, b) => b.used - a.used || b.qty - a.qty);
+  const c = candidates[0];
+
+  const name = stripLineNoise(line.slice(0, c.start));
+  if (name.length < 2 || looksLikeDateLine(name) || MONTH_NAME.test(name)) return null;
+  if (/facture|re[cç]u|ticket|total|tva|taxe|montant|net\s*[àa]\s*payer/i.test(name)) return null;
+  if (LEGAL_FORM.test(name)) return null;
+  return {
+    product_name: name.substring(0, 120),
+    quantity: String(c.qty),
+    unit: 'pièce',
+    unit_price: String(c.unit),
+    total_price: String(c.total),
+  };
+}
+
 function parseSimpleItem(line: string): OCRItem | null {
-  const itemPattern = /^(.{2,60}?)\s+(\d{1,3}(?:[.\s]\d{3})+|\d{2,})\s*(?:FCFA|F|CFA)?\s*$/i;
+  const itemPattern = /^(.{2,60}?)\s+(\d{1,3}(?:[.\s]\d{3}){1,2}|\d{2,9})\s*(?:FCFA|F|CFA)?\s*$/i;
   const itemMatch = line.match(itemPattern);
   if (!itemMatch) return null;
 
   const iName = stripLineNoise(itemMatch[1]);
   const iTotal = parseFcfa(itemMatch[2]);
-  if (iName.length < 2 || iTotal < 50) return null;
+  if (iName.length < 2 || iTotal < 50 || iTotal > 50_000_000) return null;
   if (looksLikeDateLine(line) || looksLikeDateLine(iName) || MONTH_NAME.test(iName)) return null;
   if (isLikelyYear(iTotal)) return null;
   if (digitTokens(iName).length >= 2) return null;
@@ -642,6 +701,12 @@ export function parseReceiptText(rawText: string, avgConfidence = 0): OCRResult 
     const qtyItem = parseQtyPriceLine(line);
     if (qtyItem) {
       pushItem(qtyItem);
+      return;
+    }
+
+    const unitTotal = parseUnitTotalRow(line);
+    if (unitTotal) {
+      pushItem(unitTotal);
       return;
     }
 
