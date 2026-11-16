@@ -4,6 +4,8 @@
 
 Application web progressive (PWA) pour les commerçants de Lomé : photographier un reçu, lire le texte automatiquement (OCR dans le navigateur), vérifier les montants, puis suivre dépenses, prix d'achat, fournisseurs et prix de vente conseillés.
 
+> **Reprise du projet :** le fichier [PASSATION.md](PASSATION.md) explique l'architecture, les services utilisés, les choix faits et l'historique des correctifs.
+
 > **Local d'abord, cloud en plus.** Comptes, reçus, photos et prix sont enregistrés dans le navigateur (IndexedDB) : l'application fonctionne sans réseau une fois installée. Si un projet Supabase est configuré, les mêmes données sont synchronisées en ligne et retrouvées sur les autres appareils du même compte.
 
 ---
