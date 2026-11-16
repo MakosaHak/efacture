@@ -49,3 +49,6 @@ Thumbs.db
 efacture-*.pdf
 efacture-*.csv
 *.zip
+
+# Local Netlify folder
+.netlify
