@@ -8,6 +8,7 @@ import { canRunOcr, compressFile, isMobileDevice, ocrMaxSide, OCR_SOURCE_QUALITY
 import { runOcrOnFile } from '../lib/ocr/tesseract-runner';
 import { parseReceiptText } from '../lib/ocr/ocr-parser';
 import { saveScannedInvoice } from '../lib/invoices';
+import { aiOcrAvailable, runAiOcr } from '../lib/ocr/ai-ocr';
 
 type Screen = 'idle' | 'camera' | 'preview' | 'loading';
 
@@ -143,7 +144,18 @@ export default function ScannerPage() {
       revokePreview();
       setPreviewUrl(null);
       let ocr = parseReceiptText('', 0);
-      if (canRunOcr()) {
+      let aiDone = false;
+      if (aiOcrAvailable()) {
+        setProgress('Lecture intelligente du reçu…');
+        try {
+          const forAi = await compressFile(source, 800, 0.7);
+          ocr = await runAiOcr(forAi);
+          aiDone = true;
+        } catch (err) {
+          console.warn('Lecture IA indisponible, repli sur la lecture locale :', err);
+        }
+      }
+      if (!aiDone && canRunOcr()) {
         setProgress('Lecture du reçu…');
         ocr = await runOcrOnFile(source, (p) => setProgress(`Lecture du reçu… ${Math.round(p * 100)} %`));
       }

@@ -3,8 +3,41 @@ import os from 'node:os';
 import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { handleOcrRequest, type OcrRequestBody } from './netlify/functions/lib/gemini-ocr';
+
+/** En développement, reproduit la fonction Netlify /api/ocr avec les variables du .env. */
+function devOcrApi(env: Record<string, string | undefined>): Plugin {
+  return {
+    name: 'efacture-dev-ocr-api',
+    configureServer(server) {
+      server.middlewares.use('/api/ocr', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          let body: OcrRequestBody | null = null;
+          try {
+            body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as OcrRequestBody;
+          } catch {
+            body = null;
+          }
+          const auth = req.headers.authorization ?? null;
+          void handleOcrRequest(body, typeof auth === 'string' ? auth : null, env).then(({ status, body: out }) => {
+            res.statusCode = status;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(out));
+          });
+        });
+      });
+    },
+  };
+}
 
 // Certificat local généré par mkcert et approuvé par Windows : évite l'avertissement
 // « Non sécurisé » du navigateur. Absent ailleurs → le serveur démarre en HTTP.
@@ -16,7 +49,7 @@ const https =
     ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
     : undefined;
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   server: {
     host: true,
     port: 5173,
@@ -25,6 +58,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    devOcrApi(loadEnv(mode, process.cwd(), '')),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/**/*', 'favicon.png'],
@@ -99,4 +133,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));

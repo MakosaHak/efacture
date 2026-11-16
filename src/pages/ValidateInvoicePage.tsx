@@ -139,7 +139,7 @@ export default function ValidateInvoicePage() {
         </Notice>
       ) : conf != null ? (
         <Notice tone="info" className="mb-3">
-          Lecture automatique à {Math.round(conf * 100)} %. Vérifiez les montants.
+          {String(invoice.ocr_raw_data?.provider || '').startsWith('ia:') ? 'Lu par l’assistant' : 'Lecture automatique'} à {Math.round(conf * 100)} %. Vérifiez les montants.
         </Notice>
       ) : null}
 

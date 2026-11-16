@@ -14,6 +14,7 @@ Application web progressive (PWA) pour les commerçants de Lomé : photographier
 - [Stack technique](#stack-technique)
 - [Stockage local](#stockage-local)
 - [Synchronisation Supabase](#synchronisation-supabase)
+- [Lecture des reçus par IA](#lecture-des-reçus-par-ia)
 - [Pages et navigation](#pages-et-navigation)
 - [Authentification](#authentification)
 - [Parcours scan d'un reçu](#parcours-scan-dun-reçu)
@@ -94,6 +95,27 @@ Facultative. Sans les deux variables ci-dessous, l'application est 100 % locale.
 - Hors connexion : tout continue de fonctionner ; la première connexion d'un compte sur un nouvel appareil demande le réseau.
 
 Code : `src/lib/supabase.ts`, `src/lib/sync/cloud-sync.ts`, `src/lib/auth/local-auth.ts`.
+
+---
+
+## Lecture des reçus par IA
+
+Tesseract lit bien les tickets imprimés mais saute des lignes et ne lit pas l'écriture manuscrite. L'application essaie donc d'abord une **lecture par IA (Gemini)**, puis retombe sur Tesseract si l'IA est indisponible (hors connexion, quota atteint, clé absente).
+
+### Fonctionnement
+
+- La photo est réduite (800 px) et envoyée à la fonction serveur `POST /api/ocr` (`netlify/functions/ocr.mts`) avec le jeton de connexion Supabase de l'utilisatrice : sans jeton valide, la fonction refuse (le quota gratuit n'est pas utilisable par des inconnus).
+- La fonction appelle Gemini avec la clé gardée côté serveur (`GEMINI_API_KEY`), modèle `gemini-flash-lite-latest` (3 à 5 s par reçu), et renvoie fournisseur, date, total et lignes prêts pour l'écran de vérification.
+- En développement, `vite.config.ts` reproduit la même route avec les variables du `.env`.
+
+### Mise en place
+
+1. Créer une clé sur [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (compte Google, niveau gratuit ; le quota exact s'affiche dans la console AI Studio).
+2. En local : `GEMINI_API_KEY=...` dans `.env`.
+3. Sur Netlify : *Site settings → Environment variables*, ajouter `GEMINI_API_KEY` (et `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` pour la vérification du jeton).
+4. Déployer **avec la fonction** : le glisser-déposer du dossier `dist` ne l'inclut pas. Utiliser `npm run deploy` (Netlify CLI, connexion une seule fois avec `npx netlify-cli login`), ou relier le site à GitHub.
+
+`VITE_AI_OCR=off` désactive l'appel IA côté application (Tesseract seul).
 
 ---
 
@@ -203,7 +225,14 @@ Le serveur écoute sur toutes les interfaces : ouvrez l'adresse « Network » af
 
 ## Déploiement
 
-Hébergement statique (Netlify, Vercel, GitHub Pages…). Le fichier `netlify.toml` et `public/_redirects` renvoient toutes les routes vers `index.html`. En glisser-déposer du dossier `dist`, les clés Supabase du `.env` local sont déjà intégrées au build ; en construction côté hébergeur, déclarer `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` dans ses variables.
+Netlify (plan gratuit suffisant). `netlify.toml` déclare le dossier de publication `dist`, les fonctions (`netlify/functions`) et les redirections (`/api/ocr` vers la fonction, le reste vers `index.html`).
+
+```bash
+npx netlify-cli login     # une seule fois
+npm run deploy            # build + envoi du site et de la fonction
+```
+
+Les clés Supabase du `.env` local sont intégrées au build ; `GEMINI_API_KEY` doit être déclarée dans les variables d'environnement du site Netlify (ou via `npx netlify-cli env:set GEMINI_API_KEY ...`).
 
 ---
 
@@ -221,7 +250,8 @@ src/
     auth/          authentification locale, format téléphone
     db/            IndexedDB (local-db.ts) et accès par entité (repo.ts)
     demo/          jeu de données du compte d'exemple « Chez Afi »
-    ocr/           Tesseract.js, prétraitement image, analyse du texte
+    ocr/           lecture IA (ai-ocr.ts), Tesseract.js, prétraitement image, analyse du texte
+netlify/functions/ fonction serveur /api/ocr (Gemini) et son code partagé
     invoices.ts    CRUD reçus + indicateurs, prévisions, optimisation
     productPrices.ts prix de vente suggérés
     pricing.ts     formules (pures)
@@ -236,7 +266,7 @@ src/
 
 - Sans Supabase, les données sont liées à l'appareil : pensez aux exports mensuels.
 - Pas de récupération de mot de passe par e-mail (le téléphone sert d'identifiant) : à prévoir si besoin.
-- L'OCR dépend de la qualité de la photo : reçu à plat, bien éclairé, cadré en entier.
+- La lecture IA dépend du réseau et du quota gratuit Gemini ; Tesseract prend le relais sinon, avec une qualité moindre sur le manuscrit.
 
 ---
 
